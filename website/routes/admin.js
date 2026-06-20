@@ -1,0 +1,324 @@
+'use strict';
+const { layout, redirect, escapeHtml } = require('../lib/render');
+const { sendHtml } = require('../lib/http');
+const { requireAdmin } = require('../lib/guard');
+const { toArray, fmtDateTime, safeJsonParse } = require('../lib/util');
+const logic = require('../lib/logic');
+const users = require('../lib/users');
+
+function shell(title, body, active) {
+  return { title, body, active };
+}
+
+function dashboard() {
+  const rounds = logic.listRounds();
+  const allUsers = users.listAll();
+  const frozenCount = allUsers.filter((u) => u.status === 'frozen').length;
+
+  const roundsRows = rounds
+    .map((r) => {
+      const status = r.matches.length === 0 ? '⚪ بدون مباريات' : r.locked ? '🔒 مقفولة' : '🟢 مفتوحة';
+      const ungraded = r.matches.filter((m) => !m.graded).length;
+      return `<tr>
+        <td class="px-3 py-2">${escapeHtml(r.name)}</td>
+        <td class="px-3 py-2 text-sm text-slate-500">${r.matches.length}</td>
+        <td class="px-3 py-2 text-sm">${status}</td>
+        <td class="px-3 py-2 text-sm ${ungraded ? 'text-amber-600' : 'text-slate-400'}">${ungraded ? `${ungraded} بدون نتيجة` : 'كل النتائج مدخلة'}</td>
+        <td class="px-3 py-2"><a href="/admin/rounds/${r.id}" class="text-emerald-700 font-medium">إدارة</a></td>
+      </tr>`;
+    })
+    .join('');
+
+  return `
+    <div class="flex items-center justify-between mb-4">
+      <h1 class="text-xl font-bold">لوحة تحكم الأدمن</h1>
+      <a href="/admin/rounds/new" class="bg-emerald-600 text-white rounded-lg px-4 py-2 text-sm font-bold hover:bg-emerald-700">+ جولة جديدة</a>
+    </div>
+    <div class="grid grid-cols-3 gap-3 mb-6">
+      <div class="bg-white border border-slate-200 rounded-xl p-4 text-center">
+        <div class="text-2xl font-bold text-emerald-700">${allUsers.length}</div>
+        <div class="text-xs text-slate-500">مشترك</div>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-4 text-center">
+        <div class="text-2xl font-bold text-rose-600">${frozenCount}</div>
+        <div class="text-xs text-slate-500">مجمّد</div>
+      </div>
+      <div class="bg-white border border-slate-200 rounded-xl p-4 text-center">
+        <div class="text-2xl font-bold text-slate-700">${rounds.length}</div>
+        <div class="text-xs text-slate-500">جولة</div>
+      </div>
+    </div>
+    <div class="flex items-center justify-between mb-2">
+      <h2 class="font-bold">الجولات</h2>
+      <a href="/admin/users" class="text-sm text-emerald-700 font-medium">إدارة المشتركين →</a>
+    </div>
+    <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-slate-50 text-slate-500"><tr><th class="px-3 py-2 text-right">الجولة</th><th class="px-3 py-2">مباريات</th><th class="px-3 py-2">الحالة</th><th class="px-3 py-2">النتائج</th><th></th></tr></thead>
+        <tbody class="divide-y divide-slate-100">${roundsRows || `<tr><td colspan="5" class="px-3 py-6 text-center text-slate-400">لا توجد جولات بعد</td></tr>`}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+function newRoundForm() {
+  const maxOrder = logic.listRounds().length;
+  return `
+    <h1 class="text-xl font-bold mb-4">جولة جديدة</h1>
+    <form method="post" action="/admin/rounds" class="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
+      <div>
+        <label class="block text-sm font-medium mb-1">اسم الجولة</label>
+        <input name="name" required class="w-full border border-slate-300 rounded-lg px-3 py-2" placeholder="مثال: الجولة ١ - الإثنين ١١ يونيو" />
+      </div>
+      <div>
+        <label class="block text-sm font-medium mb-1">المرحلة (اختياري)</label>
+        <input name="stage" class="w-full border border-slate-300 rounded-lg px-3 py-2" placeholder="دور المجموعات / ثمن النهائي ..." />
+      </div>
+      <div>
+        <label class="block text-sm font-medium mb-1">ترتيب الجولة</label>
+        <input name="order_index" type="number" value="${maxOrder + 1}" class="w-full border border-slate-300 rounded-lg px-3 py-2" />
+      </div>
+      <button class="bg-emerald-600 text-white rounded-lg px-4 py-2 font-bold hover:bg-emerald-700">إنشاء الجولة</button>
+    </form>
+  `;
+}
+
+function scorerInputsBlock(idA, idB, teamA, teamB) {
+  return `<div class="flex gap-4 mt-2">
+    <div id="${idA}" class="flex-1 flex flex-wrap gap-1"></div>
+    <div id="${idB}" class="flex-1 flex flex-wrap gap-1"></div>
+  </div>`;
+}
+
+function matchRow(m) {
+  if (m.graded) {
+    const sa = safeJsonParse(m.final_scorers_a, []);
+    const sb = safeJsonParse(m.final_scorers_b, []);
+    return `<div class="bg-white border border-slate-200 rounded-xl p-3 mb-2 flex items-center justify-between">
+      <div>
+        <div class="font-bold">${escapeHtml(m.team_a)} ${m.final_score_a} - ${m.final_score_b} ${escapeHtml(m.team_b)}</div>
+        <div class="text-xs text-slate-400">${fmtDateTime(m.kickoff_at)} ${sa.length || sb.length ? '| هدافين: ' + [...sa, ...sb].map(escapeHtml).join('، ') : ''}</div>
+      </div>
+      <span class="text-emerald-600 text-sm font-medium">✅ تمت إضافة النتيجة</span>
+    </div>`;
+  }
+
+  const idA = `res-scorers-a-${m.id}`;
+  const idB = `res-scorers-b-${m.id}`;
+  return `<form method="post" action="/admin/matches/${m.id}/result" class="bg-white border border-amber-200 rounded-xl p-3 mb-2">
+    <div class="flex items-center justify-between text-xs text-slate-400 mb-2">
+      <span>${fmtDateTime(m.kickoff_at)}</span>
+    </div>
+    <div class="flex items-center justify-center gap-3">
+      <span class="font-bold">${escapeHtml(m.team_a)}</span>
+      <input type="number" min="0" max="20" name="final_score_a" required class="score-input w-16 text-center border border-slate-300 rounded-lg py-1" data-target="${idA}" data-field="final_scorers_a_${m.id}" />
+      <span class="text-slate-400">-</span>
+      <input type="number" min="0" max="20" name="final_score_b" required class="score-input w-16 text-center border border-slate-300 rounded-lg py-1" data-target="${idB}" data-field="final_scorers_b_${m.id}" />
+      <span class="font-bold">${escapeHtml(m.team_b)}</span>
+    </div>
+    ${scorerInputsBlock(idA, idB, m.team_a, m.team_b)}
+    <button class="w-full mt-2 bg-amber-600 text-white rounded-lg py-1.5 text-sm font-bold hover:bg-amber-700">حفظ النتيجة وحساب النقاط</button>
+  </form>`;
+}
+
+function roundManage(round) {
+  const matchesHtml = round.matches.map(matchRow).join('') || `<div class="text-slate-400 text-sm py-4 text-center">لا توجد مباريات بعد</div>`;
+  const bonusOptsValue = round.bonus_options.join('\n');
+
+  return `
+    <a href="/admin" class="text-sm text-slate-500">← رجوع للوحة التحكم</a>
+    <h1 class="text-xl font-bold mt-1 mb-4">${escapeHtml(round.name)} ${round.locked ? '🔒' : '🟢'}</h1>
+
+    <h2 class="font-bold mb-2">المباريات</h2>
+    ${matchesHtml}
+
+    <div class="bg-white border border-slate-200 rounded-xl p-4 my-4">
+      <h3 class="font-bold mb-2 text-sm">إضافة مباراة</h3>
+      <form method="post" action="/admin/rounds/${round.id}/matches" class="grid grid-cols-3 gap-2">
+        <input name="team_a" placeholder="الفريق الأول" required class="border border-slate-300 rounded-lg px-2 py-1.5 text-sm" />
+        <input name="team_b" placeholder="الفريق الثاني" required class="border border-slate-300 rounded-lg px-2 py-1.5 text-sm" />
+        <input name="kickoff_at" type="datetime-local" required class="border border-slate-300 rounded-lg px-2 py-1.5 text-sm" />
+        <button class="col-span-3 bg-emerald-600 text-white rounded-lg py-1.5 text-sm font-bold hover:bg-emerald-700">إضافة</button>
+      </form>
+      <details class="mt-3">
+        <summary class="text-xs text-slate-500 cursor-pointer">إضافة عدة مباريات دفعة واحدة</summary>
+        <form method="post" action="/admin/rounds/${round.id}/matches/bulk" class="mt-2">
+          <textarea name="bulk" rows="4" class="w-full border border-slate-300 rounded-lg px-2 py-1.5 text-sm font-mono" placeholder="فريق أ;فريق ب;2026-06-21T19:00&#10;فريق ج;فريق د;2026-06-21T22:00"></textarea>
+          <p class="text-xs text-slate-400 mt-1">كل سطر: الفريق الأول;الفريق الثاني;تاريخ ووقت الانطلاق (YYYY-MM-DDTHH:MM)</p>
+          <button class="bg-slate-600 text-white rounded-lg px-3 py-1.5 text-sm font-bold mt-2 hover:bg-slate-700">إضافة الكل</button>
+        </form>
+      </details>
+    </div>
+
+    <div class="bg-white border border-slate-200 rounded-xl p-4">
+      <h3 class="font-bold mb-2 text-sm">⭐ سؤال البونص</h3>
+      <form method="post" action="/admin/rounds/${round.id}/bonus" class="space-y-2">
+        <input name="question" value="${escapeHtml(round.bonus_question || '')}" placeholder="نص السؤال" class="w-full border border-slate-300 rounded-lg px-2 py-1.5 text-sm" />
+        <textarea name="options" rows="3" placeholder="كل اختيار في سطر" class="w-full border border-slate-300 rounded-lg px-2 py-1.5 text-sm">${escapeHtml(bonusOptsValue)}</textarea>
+        <div class="flex items-center gap-2">
+          <label class="text-sm">رقم الاختيار الصحيح (يبدأ من ١):</label>
+          <input name="correct" type="number" min="1" value="${round.bonus_correct_index != null ? round.bonus_correct_index + 1 : ''}" class="w-20 border border-slate-300 rounded-lg px-2 py-1 text-sm" />
+        </div>
+        <button class="bg-amber-600 text-white rounded-lg px-3 py-1.5 text-sm font-bold hover:bg-amber-700">حفظ السؤال</button>
+      </form>
+      ${
+        round.bonus_question
+          ? `<form method="post" action="/admin/rounds/${round.id}/bonus/grade" class="mt-2">
+              <button class="bg-purple-600 text-white rounded-lg px-3 py-1.5 text-sm font-bold hover:bg-purple-700">تصحيح إجابات سؤال البونص الآن</button>
+            </form>`
+          : ''
+      }
+    </div>
+  `;
+}
+
+function usersPage() {
+  const rows = users.listAll();
+  const totals = logic.computeTotals();
+  const rowsHtml = rows
+    .map((u) => {
+      const total = totals[u.id] || 0;
+      return `<tr>
+        <td class="px-3 py-2">${escapeHtml(u.name)}</td>
+        <td class="px-3 py-2 text-center">${total}</td>
+        <td class="px-3 py-2 text-center">${u.miss_streak}</td>
+        <td class="px-3 py-2 text-center">${u.status === 'frozen' ? '❄️ مجمّد' : '✅ نشط'}</td>
+        <td class="px-3 py-2">
+          <form method="post" action="/admin/users/${u.id}/status" class="inline">
+            <input type="hidden" name="status" value="${u.status === 'frozen' ? 'active' : 'frozen'}" />
+            <button class="text-xs ${u.status === 'frozen' ? 'text-emerald-700' : 'text-rose-600'} font-medium">${u.status === 'frozen' ? 'إلغاء التجميد' : 'تجميد'}</button>
+          </form>
+        </td>
+        <td class="px-3 py-2">
+          <form method="post" action="/admin/users/${u.id}/password" class="flex gap-1">
+            <input name="password" placeholder="باسوورد جديد" class="border border-slate-300 rounded px-2 py-1 text-xs w-28" />
+            <button class="text-xs text-emerald-700 font-medium">تغيير</button>
+          </form>
+        </td>
+      </tr>`;
+    })
+    .join('');
+
+  return `
+    <a href="/admin" class="text-sm text-slate-500">← رجوع للوحة التحكم</a>
+    <h1 class="text-xl font-bold mt-1 mb-4">إدارة المشتركين (${rows.length})</h1>
+    <div class="bg-white border border-slate-200 rounded-xl overflow-x-auto">
+      <table class="w-full text-sm whitespace-nowrap">
+        <thead class="bg-slate-50 text-slate-500"><tr>
+          <th class="px-3 py-2 text-right">الاسم</th><th class="px-3 py-2">النقاط</th><th class="px-3 py-2">غياب متتالي</th><th class="px-3 py-2">الحالة</th><th class="px-3 py-2"></th><th class="px-3 py-2">إعادة تعيين باسوورد</th>
+        </tr></thead>
+        <tbody class="divide-y divide-slate-100">${rowsHtml || `<tr><td colspan="6" class="px-3 py-6 text-center text-slate-400">لا يوجد مشتركين بعد</td></tr>`}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+module.exports = function (router) {
+  router.get('/admin', async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    sendHtml(res, layout({ title: 'الأدمن', user: req.user, active: 'admin', msg: req.flashMsg, msgType: req.flashType, body: dashboard() }));
+  });
+
+  router.get('/admin/rounds/new', async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    sendHtml(res, layout({ title: 'جولة جديدة', user: req.user, active: 'admin', body: newRoundForm() }));
+  });
+
+  router.post('/admin/rounds', async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const { name, stage, order_index } = req.body;
+    if (!name) return redirect(res, '/admin/rounds/new', 'اسم الجولة مطلوب.', 'error');
+    const id = logic.createRound({ name, stage, orderIndex: parseInt(order_index, 10) || 1 });
+    redirect(res, `/admin/rounds/${id}`, 'تم إنشاء الجولة ✅');
+  });
+
+  router.get('/admin/rounds/:id', async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const round = logic.getRound(Number(req.params.id));
+    if (!round) return redirect(res, '/admin', 'الجولة غير موجودة.', 'error');
+    sendHtml(res, layout({ title: round.name, user: req.user, active: 'admin', msg: req.flashMsg, msgType: req.flashType, body: roundManage(round) }));
+  });
+
+  router.post('/admin/rounds/:id/matches', async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const roundId = Number(req.params.id);
+    const { team_a, team_b, kickoff_at } = req.body;
+    if (!team_a || !team_b || !kickoff_at) return redirect(res, `/admin/rounds/${roundId}`, 'كل الحقول مطلوبة.', 'error');
+    logic.addMatch(roundId, team_a, team_b, new Date(kickoff_at).toISOString());
+    redirect(res, `/admin/rounds/${roundId}`, 'تمت إضافة المباراة ✅');
+  });
+
+  router.post('/admin/rounds/:id/matches/bulk', async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const roundId = Number(req.params.id);
+    const lines = String(req.body.bulk || '').split('\n').map((l) => l.trim()).filter(Boolean);
+    let count = 0;
+    for (const line of lines) {
+      const parts = line.split(';').map((p) => p.trim());
+      if (parts.length < 3) continue;
+      const [teamA, teamB, dt] = parts;
+      const d = new Date(dt);
+      if (isNaN(d.getTime())) continue;
+      logic.addMatch(roundId, teamA, teamB, d.toISOString());
+      count++;
+    }
+    redirect(res, `/admin/rounds/${roundId}`, `تمت إضافة ${count} مباراة ✅`);
+  });
+
+  router.post('/admin/matches/:id/result', async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const matchId = Number(req.params.id);
+    const match = logic.getMatch(matchId);
+    if (!match) return redirect(res, '/admin', 'المباراة غير موجودة.', 'error');
+
+    const finalA = parseInt(req.body.final_score_a, 10);
+    const finalB = parseInt(req.body.final_score_b, 10);
+    if (Number.isNaN(finalA) || Number.isNaN(finalB)) return redirect(res, `/admin/rounds/${match.round_id}`, 'النتيجة غير صحيحة.', 'error');
+
+    const scorersA = toArray(req.body[`final_scorers_a_${matchId}`]).filter((s) => s && s.trim()).slice(0, finalA);
+    const scorersB = toArray(req.body[`final_scorers_b_${matchId}`]).filter((s) => s && s.trim()).slice(0, finalB);
+
+    logic.gradeMatch(matchId, finalA, finalB, scorersA, scorersB);
+    redirect(res, `/admin/rounds/${match.round_id}`, 'تم حفظ النتيجة وحساب نقاط الكل ✅');
+  });
+
+  router.post('/admin/rounds/:id/bonus', async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const roundId = Number(req.params.id);
+    const options = String(req.body.options || '').split('\n').map((o) => o.trim()).filter(Boolean);
+    const correctRaw = parseInt(req.body.correct, 10);
+    const correctIndex = correctRaw ? correctRaw - 1 : null;
+    logic.updateRoundBonus(roundId, { question: req.body.question, options, correctIndex });
+    redirect(res, `/admin/rounds/${roundId}`, 'تم حفظ سؤال البونص ✅');
+  });
+
+  router.post('/admin/rounds/:id/bonus/grade', async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const roundId = Number(req.params.id);
+    const round = logic.getRound(roundId);
+    if (!round || round.bonus_correct_index == null) {
+      return redirect(res, `/admin/rounds/${roundId}`, 'لازم تحدد الاختيار الصحيح أول.', 'error');
+    }
+    logic.gradeBonus(roundId, round.bonus_correct_index);
+    redirect(res, `/admin/rounds/${roundId}`, 'تم تصحيح إجابات البونص ✅');
+  });
+
+  router.get('/admin/users', async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    sendHtml(res, layout({ title: 'المشتركين', user: req.user, active: 'admin', msg: req.flashMsg, msgType: req.flashType, body: usersPage() }));
+  });
+
+  router.post('/admin/users/:id/status', async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    users.setStatus(Number(req.params.id), req.body.status === 'frozen' ? 'frozen' : 'active');
+    redirect(res, '/admin/users', 'تم تحديث حالة المشترك ✅');
+  });
+
+  router.post('/admin/users/:id/password', async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const pw = String(req.body.password || '');
+    if (pw.length < 4) return redirect(res, '/admin/users', 'كلمة المرور قصيرة.', 'error');
+    users.resetPassword(Number(req.params.id), pw);
+    redirect(res, '/admin/users', 'تم تغيير كلمة المرور ✅');
+  });
+};

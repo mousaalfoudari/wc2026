@@ -1,0 +1,114 @@
+'use strict';
+const http = require('http');
+const { URL } = require('url');
+
+const Router = require('./lib/router');
+const { parseCookies, readBody, parseFormBody } = require('./lib/util');
+const { getUserIdFromCookies } = require('./lib/auth');
+const { serveStatic, sendHtml, sendText } = require('./lib/http');
+const { layout, redirect } = require('./lib/render');
+const users = require('./lib/users');
+const logic = require('./lib/logic');
+
+const router = new Router();
+require('./routes/auth')(router);
+require('./routes/predict')(router);
+require('./routes/leaderboard')(router);
+require('./routes/admin')(router);
+
+const PORT = process.env.PORT || 3000;
+
+function ensureAdminAccount() {
+  const db = require('./lib/db');
+  const count = db.prepare('SELECT COUNT(*) AS c FROM users WHERE is_admin = 1').get().c;
+  if (count > 0) return;
+  const crypto = require('crypto');
+  const name = process.env.ADMIN_NAME || 'admin';
+  const password = process.env.ADMIN_PASSWORD || crypto.randomBytes(4).toString('hex');
+  const result = users.createUser(name, password, true);
+  if (result.ok) {
+    console.log('\n========================================');
+    console.log(' تم إنشاء حساب أدمن تلقائياً:');
+    console.log(' الاسم:        ', name);
+    console.log(' كلمة المرور: ', password);
+    console.log(' (احفظها الحين - راح تحتاجها لتسجيل الدخول كأدمن)');
+    console.log('========================================\n');
+  }
+}
+
+ensureAdminAccount();
+
+const server = http.createServer(async (req, res) => {
+  try {
+    const u = new URL(req.url, 'http://localhost');
+    const pathname = decodeURIComponent(u.pathname);
+
+    if (pathname !== '/' && (pathname.startsWith('/style.css') || pathname.startsWith('/app.js') || pathname.startsWith('/favicon'))) {
+      if (serveStatic(req, res, pathname)) return;
+    }
+
+    // Best-effort periodic processing of round locks / miss-streaks.
+    try {
+      logic.processRoundLocks();
+    } catch (e) {
+      console.error('processRoundLocks error', e);
+    }
+
+    const cookies = parseCookies(req);
+    const uid = getUserIdFromCookies(cookies);
+    req.user = uid ? users.findById(uid) : null;
+    req.cookies = cookies;
+    req.flashMsg = u.searchParams.get('msg') || '';
+    req.flashType = u.searchParams.get('t') || 'ok';
+    req.query = Object.fromEntries(u.searchParams.entries());
+
+    if (req.method === 'POST') {
+      const raw = await readBody(req);
+      const ct = req.headers['content-type'] || '';
+      req.body = ct.includes('application/json') ? safeJson(raw) : parseFormBody(raw);
+    } else {
+      req.body = {};
+    }
+
+    const match = router.match(req.method, pathname);
+
+    if (pathname === '/' ) {
+      return redirect(res, req.user ? '/predict' : '/login');
+    }
+
+    if (!match) {
+      sendHtml(res, layout({ title: 'الصفحة غير موجودة', user: req.user, body: notFoundBody() }), 404);
+      return;
+    }
+
+    req.params = match.params || {};
+    await match.handler(req, res, req.params);
+  } catch (err) {
+    console.error('Request error:', err);
+    try {
+      sendText(res, 'حدث خطأ غير متوقع في السيرفر. حاول مرة ثانية.', 500);
+    } catch (e) {
+      res.end();
+    }
+  }
+});
+
+function safeJson(raw) {
+  try {
+    return JSON.parse(raw || '{}');
+  } catch (e) {
+    return {};
+  }
+}
+
+function notFoundBody() {
+  return `<div class="text-center py-16">
+    <p class="text-5xl mb-4">🔍</p>
+    <h1 class="text-xl font-bold mb-2">الصفحة غير موجودة</h1>
+    <a href="/" class="text-emerald-700 font-medium">رجوع للرئيسية</a>
+  </div>`;
+}
+
+server.listen(PORT, () => {
+  console.log(`✔ السيرفر شغال على http://localhost:${PORT}`);
+});

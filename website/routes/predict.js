@@ -1,0 +1,293 @@
+'use strict';
+const { layout, redirect, escapeHtml } = require('../lib/render');
+const { sendHtml } = require('../lib/http');
+const { requireUser } = require('../lib/guard');
+const { toArray, fmtDateTime, safeJsonParse } = require('../lib/util');
+const logic = require('../lib/logic');
+const db = require('../lib/db');
+
+function roundPicker(rounds, currentId) {
+  const opts = rounds
+    .map((r) => {
+      const icon = r.matches.length === 0 ? '⚪' : r.locked ? '🔒' : '🟢';
+      return `<option value="${r.id}" ${r.id === currentId ? 'selected' : ''}>${icon} ${escapeHtml(r.name)}</option>`;
+    })
+    .join('');
+  return `<select onchange="location.href='/predict?round='+this.value" class="border border-slate-300 rounded-lg px-3 py-2 text-sm w-full mb-4 bg-white">${opts}</select>`;
+}
+
+function matchCard(match, prediction, eligibleDoubleIds, doublePickId, locked) {
+  const id = match.id;
+  const already = !!prediction;
+  const teamRow = `<div class="flex items-center justify-between text-sm text-slate-400 mb-2">
+      <span>${fmtDateTime(match.kickoff_at)}</span>
+      ${eligibleDoubleIds.has(id) ? `<span class="text-amber-600 font-medium">${doublePickId === id ? '⭐ مباراة الدبل' : ''}</span>` : ''}
+    </div>`;
+
+  if (match.graded) {
+    const finalScorersA = safeJsonParse(match.final_scorers_a, []);
+    const finalScorersB = safeJsonParse(match.final_scorers_b, []);
+    const predBlock = already
+      ? `<div class="mt-2 text-sm text-slate-600">توقعك: ${prediction.pred_score_a} - ${prediction.pred_score_b}
+          ${prediction.pred_scorers_a && JSON.parse(prediction.pred_scorers_a).length ? ' | ' + JSON.parse(prediction.pred_scorers_a).join('، ') : ''}
+          ${prediction.pred_scorers_b && JSON.parse(prediction.pred_scorers_b).length ? ' - ' + JSON.parse(prediction.pred_scorers_b).join('، ') : ''}
+          <div class="mt-1 font-bold ${prediction.points_earned > 0 ? 'text-emerald-600' : prediction.points_earned < 0 ? 'text-rose-600' : 'text-slate-500'}">
+            النقاط: ${prediction.points_earned ?? 0} ${prediction.is_double ? '(دبل ✅)' : ''} ${prediction.perfect ? '🃏 جوكر!' : ''}
+          </div>
+        </div>`
+      : `<div class="mt-2 text-sm text-rose-500">ما توقعت هذي المباراة.</div>`;
+    return `<div class="bg-white border border-slate-200 rounded-xl p-4 mb-3">
+      ${teamRow}
+      <div class="flex items-center justify-center gap-4 text-lg font-bold">
+        <span>${escapeHtml(match.team_a)}</span>
+        <span class="bg-slate-100 rounded-lg px-3 py-1">${match.final_score_a} - ${match.final_score_b}</span>
+        <span>${escapeHtml(match.team_b)}</span>
+      </div>
+      ${finalScorersA.length || finalScorersB.length ? `<div class="text-center text-xs text-slate-400 mt-1">الهدافين: ${[...finalScorersA, ...finalScorersB].map(escapeHtml).join('، ')}</div>` : ''}
+      ${predBlock}
+    </div>`;
+  }
+
+  if (already) {
+    return `<div class="bg-white border border-slate-200 rounded-xl p-4 mb-3">
+      ${teamRow}
+      <div class="flex items-center justify-center gap-4 text-lg font-bold">
+        <span>${escapeHtml(match.team_a)}</span>
+        <span class="bg-emerald-50 text-emerald-700 rounded-lg px-3 py-1">${prediction.pred_score_a} - ${prediction.pred_score_b}</span>
+        <span>${escapeHtml(match.team_b)}</span>
+      </div>
+      <div class="text-center text-xs text-emerald-600 mt-2">✅ تم إرسال توقعك، بانتظار النتيجة.</div>
+    </div>`;
+  }
+
+  if (locked) {
+    return `<div class="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-3 opacity-70">
+      ${teamRow}
+      <div class="flex items-center justify-center gap-4 text-lg font-bold text-slate-400">
+        <span>${escapeHtml(match.team_a)}</span><span>vs</span><span>${escapeHtml(match.team_b)}</span>
+      </div>
+      <div class="text-center text-xs text-rose-500 mt-2">🔒 فاتك وقت التوقع لهذي المباراة.</div>
+    </div>`;
+  }
+
+  return `<form method="post" action="/predict/match/${id}" class="bg-white border border-slate-200 rounded-xl p-4 mb-3">
+    ${teamRow}
+    <div class="flex items-center justify-center gap-3">
+      <span class="font-bold">${escapeHtml(match.team_a)}</span>
+      <input type="number" min="0" max="20" name="score_a" required class="score-input w-16 text-center border border-slate-300 rounded-lg py-1.5" data-target="scorers-a-${id}" data-team="${escapeHtml(match.team_a)}" data-field="scorers_a_${id}" />
+      <span class="text-slate-400">-</span>
+      <input type="number" min="0" max="20" name="score_b" required class="score-input w-16 text-center border border-slate-300 rounded-lg py-1.5" data-target="scorers-b-${id}" data-team="${escapeHtml(match.team_b)}" data-field="scorers_b_${id}" />
+      <span class="font-bold">${escapeHtml(match.team_b)}</span>
+    </div>
+    <div id="scorers-a-${id}" class="flex flex-wrap gap-2 justify-center mt-3"></div>
+    <div id="scorers-b-${id}" class="flex flex-wrap gap-2 justify-center mt-1"></div>
+    ${
+      eligibleDoubleIds.has(id)
+        ? `<label class="flex items-center justify-center gap-2 mt-3 text-sm text-amber-700">
+            <input type="checkbox" name="set_double" value="1" ${doublePickId === id ? 'checked' : ''} />
+            اعتبر هذي مباراة الدبل لهذي الجولة
+          </label>`
+        : ''
+    }
+    <button class="w-full mt-3 bg-emerald-600 text-white rounded-lg py-2 font-bold hover:bg-emerald-700">إرسال التوقع (لا يمكن تعديله بعد الإرسال)</button>
+  </form>`;
+}
+
+function bonusSection(round, user, answer) {
+  if (!round.bonus_question) return '';
+  if (round.locked) {
+    if (!answer) return `<div class="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4 text-sm text-slate-500">سؤال البونص: ${escapeHtml(round.bonus_question)} — ما جاوبت عليه.</div>`;
+    const correct = round.bonus_correct_index;
+    const yourChoice = round.bonus_options[answer.choice_index] || '';
+    return `<div class="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4 text-sm">
+      <div class="font-medium mb-1">سؤال البونص: ${escapeHtml(round.bonus_question)}</div>
+      <div>جوابك: ${escapeHtml(yourChoice)} ${answer.points != null ? `<span class="font-bold ${answer.points > 0 ? 'text-emerald-600' : 'text-rose-600'}">(${answer.points > 0 ? '+' : ''}${answer.points} نقاط)</span>` : '<span class="text-slate-400">(بانتظار التصحيح)</span>'}</div>
+    </div>`;
+  }
+  if (answer) {
+    return `<div class="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4 text-sm text-amber-700">✅ جاوبت على سؤال البونص: ${escapeHtml(round.bonus_options[answer.choice_index] || '')}</div>`;
+  }
+  const opts = round.bonus_options
+    .map((opt, i) => `<label class="flex items-center gap-2"><input type="radio" name="choice_index" value="${i}" required /> ${escapeHtml(opt)}</label>`)
+    .join('');
+  return `<form method="post" action="/predict/round/${round.id}/bonus" class="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4">
+    <div class="font-bold text-amber-800 mb-2">⭐ سؤال البونص (٧+ صح / ٧- غلط)</div>
+    <div class="mb-2">${escapeHtml(round.bonus_question)}</div>
+    <div class="flex flex-col gap-2 mb-3">${opts}</div>
+    <button class="bg-amber-600 text-white rounded-lg px-4 py-2 text-sm font-bold hover:bg-amber-700">إرسال الجواب</button>
+  </form>`;
+}
+
+function jokerBanner(jokers, currentUserId) {
+  if (!jokers.length) return '';
+  const targets = logic
+    .leaderboard()
+    .filter((u) => u.id !== currentUserId && u.total >= 5);
+
+  return jokers
+    .map((j) => {
+      if (!targets.length) {
+        return `<div class="bg-purple-50 border border-purple-200 rounded-xl p-4 mb-4 text-sm text-purple-700">🃏 عندك جوكر متاح! بس ما فيه حالياً لاعب عنده ٥ نقاط أو أكثر تاخذ منه.</div>`;
+      }
+      const opts = targets.map((t) => `<option value="${t.id}">${escapeHtml(t.name)} (${t.total} نقطة)</option>`).join('');
+      return `<form method="post" action="/joker/${j.id}/use" class="bg-purple-50 border border-purple-200 rounded-xl p-4 mb-4">
+        <div class="font-bold text-purple-800 mb-2">🃏 عندك جوكر متاح! استخدمه الحين (ما يصير تأجيله)</div>
+        <div class="flex gap-2">
+          <select name="target_user_id" class="flex-1 border border-purple-300 rounded-lg px-2 py-1.5 text-sm">${opts}</select>
+          <button class="bg-purple-600 text-white rounded-lg px-4 py-1.5 text-sm font-bold hover:bg-purple-700">خذ ٥ نقاط</button>
+        </div>
+      </form>`;
+    })
+    .join('');
+}
+
+function doublePicker(round, eligibleIds, currentPickId) {
+  if (round.locked || eligibleIds.size === 0) return '';
+  const eligibleMatches = round.matches.filter((m) => eligibleIds.has(m.id));
+  const opts = [`<option value="">بدون دبل</option>`]
+    .concat(
+      eligibleMatches.map(
+        (m) => `<option value="${m.id}" ${currentPickId === m.id ? 'selected' : ''}>${escapeHtml(m.team_a)} × ${escapeHtml(m.team_b)}</option>`
+      )
+    )
+    .join('');
+  return `<form method="post" action="/predict/round/${round.id}/double" class="bg-white border border-amber-200 rounded-xl p-4 mb-4">
+    <div class="font-bold text-amber-700 mb-2">⭐ ميزة الدبل: اختر مباراة اليوم تتضاعف نقاطها</div>
+    <div class="flex gap-2">
+      <select name="match_id" class="flex-1 border border-slate-300 rounded-lg px-2 py-1.5 text-sm">${opts}</select>
+      <button class="bg-amber-500 text-white rounded-lg px-4 py-1.5 text-sm font-bold hover:bg-amber-600">حفظ</button>
+    </div>
+  </form>`;
+}
+
+module.exports = function (router) {
+  router.get('/predict', async (req, res) => {
+    if (!requireUser(req, res)) return;
+    const rounds = logic.listRounds();
+
+    if (!rounds.length) {
+      sendHtml(
+        res,
+        layout({
+          title: 'توقعاتي',
+          user: req.user,
+          active: 'predict',
+          msg: req.flashMsg,
+          msgType: req.flashType,
+          body: `<div class="text-center py-16 text-slate-500">لا توجد جولات بعد، الأدمن لسا ما ضاف مباريات.</div>`,
+        })
+      );
+      return;
+    }
+
+    const openRounds = rounds.filter((r) => !r.locked && r.matches.length > 0);
+    let currentId = req.query.round ? Number(req.query.round) : null;
+    if (!currentId) currentId = openRounds.length ? openRounds[0].id : rounds[rounds.length - 1].id;
+    const round = logic.getRound(currentId) || rounds[0];
+
+    const predictions = logic.getUserPredictionsForRound(req.user.id, round.id);
+    const eligibleDoubleIds = logic.doubleEligibleMatchIds(round.id);
+    const pick = logic.getRoundPick(req.user.id, round.id);
+    const bonusAns = logic.getBonusAnswer(req.user.id, round.id);
+    const jokers = logic.getAvailableJokers(req.user.id);
+
+    const frozenNotice =
+      req.user.status === 'frozen'
+        ? `<div class="bg-rose-50 border border-rose-200 rounded-xl p-4 mb-4 text-sm text-rose-700">❄️ حسابك مجمّد بسبب الغياب ٣ جولات متتالية، ما يمكنك تسجيل توقعات جديدة. تواصل مع الأدمن لو تبي توضيح.</div>`
+        : '';
+
+    const cards = round.matches
+      .map((m) => matchCard(m, predictions[m.id], eligibleDoubleIds, pick ? pick.double_match_id : null, round.locked))
+      .join('');
+
+    const body = `
+      ${roundPicker(rounds, round.id)}
+      <h2 class="text-lg font-bold mb-3">${escapeHtml(round.name)} ${round.locked ? '🔒 مقفولة' : '🟢 مفتوحة'}</h2>
+      ${frozenNotice}
+      ${req.user.status !== 'frozen' ? jokerBanner(jokers, req.user.id) : ''}
+      ${req.user.status !== 'frozen' ? doublePicker(round, eligibleDoubleIds, pick ? pick.double_match_id : null) : ''}
+      ${bonusSection(round, req.user, bonusAns)}
+      ${cards}
+    `;
+
+    sendHtml(
+      res,
+      layout({
+        title: 'توقعاتي',
+        user: req.user,
+        active: 'predict',
+        msg: req.flashMsg,
+        msgType: req.flashType,
+        body,
+      })
+    );
+  });
+
+  router.post('/predict/match/:matchId', async (req, res) => {
+    if (!requireUser(req, res)) return;
+    const matchId = Number(req.params.matchId);
+    const match = logic.getMatch(matchId);
+    if (!match) return redirect(res, '/predict', 'المباراة غير موجودة.', 'error');
+
+    const round = logic.getRound(match.round_id);
+    if (req.user.status === 'frozen') return redirect(res, `/predict?round=${round.id}`, 'حسابك مجمّد، ما يمكنك التوقع.', 'error');
+    if (round.locked) return redirect(res, `/predict?round=${round.id}`, 'فاتك وقت التوقع لهذي الجولة.', 'error');
+    if (logic.getUserPrediction(req.user.id, matchId)) return redirect(res, `/predict?round=${round.id}`, 'توقعت هذي المباراة من قبل.', 'error');
+
+    const scoreA = parseInt(req.body.score_a, 10);
+    const scoreB = parseInt(req.body.score_b, 10);
+    if (Number.isNaN(scoreA) || Number.isNaN(scoreB) || scoreA < 0 || scoreB < 0) {
+      return redirect(res, `/predict?round=${round.id}`, 'النتيجة غير صحيحة.', 'error');
+    }
+    const scorersA = toArray(req.body[`scorers_a_${matchId}`] || req.body.scorers_a).filter((s) => s && s.trim()).slice(0, scoreA);
+    const scorersB = toArray(req.body[`scorers_b_${matchId}`] || req.body.scorers_b).filter((s) => s && s.trim()).slice(0, scoreB);
+
+    logic.submitPrediction(req.user.id, matchId, scoreA, scoreB, scorersA, scorersB);
+
+    if (req.body.set_double === '1') {
+      const eligible = logic.doubleEligibleMatchIds(round.id);
+      if (eligible.has(matchId)) logic.setDoublePick(req.user.id, round.id, matchId);
+    }
+
+    redirect(res, `/predict?round=${round.id}`, 'تم تسجيل توقعك ✅');
+  });
+
+  router.post('/predict/round/:roundId/double', async (req, res) => {
+    if (!requireUser(req, res)) return;
+    const roundId = Number(req.params.roundId);
+    const round = logic.getRound(roundId);
+    if (!round) return redirect(res, '/predict', 'الجولة غير موجودة.', 'error');
+    if (req.user.status === 'frozen') return redirect(res, `/predict?round=${roundId}`, 'حسابك مجمّد.', 'error');
+    if (round.locked) return redirect(res, `/predict?round=${roundId}`, 'الجولة مقفولة.', 'error');
+
+    const matchId = req.body.match_id ? Number(req.body.match_id) : null;
+    const eligible = logic.doubleEligibleMatchIds(roundId);
+    if (matchId && !eligible.has(matchId)) return redirect(res, `/predict?round=${roundId}`, 'هذي المباراة مو مؤهلة للدبل.', 'error');
+
+    logic.setDoublePick(req.user.id, roundId, matchId);
+    redirect(res, `/predict?round=${roundId}`, 'تم حفظ اختيار الدبل ⭐');
+  });
+
+  router.post('/predict/round/:roundId/bonus', async (req, res) => {
+    if (!requireUser(req, res)) return;
+    const roundId = Number(req.params.roundId);
+    const round = logic.getRound(roundId);
+    if (!round) return redirect(res, '/predict', 'الجولة غير موجودة.', 'error');
+    if (req.user.status === 'frozen') return redirect(res, `/predict?round=${roundId}`, 'حسابك مجمّد.', 'error');
+    if (round.locked) return redirect(res, `/predict?round=${roundId}`, 'فاتك وقت سؤال البونص.', 'error');
+
+    const choiceIndex = parseInt(req.body.choice_index, 10);
+    if (Number.isNaN(choiceIndex)) return redirect(res, `/predict?round=${roundId}`, 'اختر إجابة.', 'error');
+
+    const ok = logic.submitBonusAnswer(req.user.id, roundId, choiceIndex);
+    redirect(res, `/predict?round=${roundId}`, ok ? 'تم إرسال جوابك على سؤال البونص ✅' : 'جاوبت على السؤال من قبل.', ok ? 'ok' : 'error');
+  });
+
+  router.post('/joker/:jokerId/use', async (req, res) => {
+    if (!requireUser(req, res)) return;
+    const jokerId = Number(req.params.jokerId);
+    const targetUserId = Number(req.body.target_user_id);
+    const result = logic.useJoker(jokerId, req.user.id, targetUserId);
+    redirect(res, '/predict', result.ok ? 'تم استخدام الجوكر، أخذت ٥ نقاط 🃏' : result.error, result.ok ? 'ok' : 'error');
+  });
+};

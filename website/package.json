@@ -1,0 +1,13 @@
+{
+  "name": "wc2026-predictions",
+  "version": "1.0.0",
+  "description": "موقع توقعات كأس العالم 2026 - بدون أي اعتماديات خارجية (Node فقط)",
+  "main": "server.js",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {}
+}
