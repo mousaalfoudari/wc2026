@@ -247,15 +247,34 @@ function roundPredictions(round, data) {
       const details = predictions
         .map((p, i) => {
           const detailId = `pd-${match.id}-${i}`;
-          const scorers = [...p.predScorersA, ...p.predScorersB];
           const pts =
             p.pointsEarned != null
               ? `<span class="font-bold ${p.pointsEarned > 0 ? 'text-emerald-600' : p.pointsEarned < 0 ? 'text-rose-600' : 'text-slate-500'}">${p.pointsEarned} نقطة</span>`
               : '<span class="text-slate-400">بدون نقاط بعد</span>';
+
+          // ✅ next to a scorer name means it already matched automatically
+          // (literally or via the alias dictionary). If it didn't match but
+          // the score itself was exact, show a manual "احسبه صحيح" button
+          // so the admin can credit it after eyeballing the name themselves.
+          const scorerItem = (name, matched) => {
+            if (!p.canCreditScorer) return `<span class="text-slate-500">${escapeHtml(name)}</span>`;
+            if (matched) return `<span class="text-emerald-700">${escapeHtml(name)} ✅</span>`;
+            const addPts = p.isDouble ? 4 : 2;
+            return `<span class="text-slate-500">${escapeHtml(name)}</span>
+              <form method="post" action="/admin/predictions/${p.id}/credit-scorer" class="inline" data-confirm="تأكيد اعتبار ${escapeHtml(name)} هداف صحيح لتوقع ${escapeHtml(p.userName)}؟ بتنضاف +${addPts} نقطة. لا تكرر الضغط لنفس الهداف.">
+                <button class="text-[10px] bg-amber-100 hover:bg-amber-200 text-amber-700 rounded px-1.5 py-0.5 align-middle">✓ احسبه صحيح</button>
+              </form>`;
+          };
+
+          const scorerNamesHtml = [
+            ...p.predScorersA.map((name, idx) => scorerItem(name, p.scorerMatchA[idx])),
+            ...p.predScorersB.map((name, idx) => scorerItem(name, p.scorerMatchB[idx])),
+          ].join(' &nbsp;');
+
           return `<div id="${detailId}" class="pred-detail hidden border-t border-slate-100 mt-2 pt-2 text-sm">
             <span class="font-bold">${escapeHtml(p.userName)}${p.isDouble ? ' ⭐' : ''}:</span>
             <span class="font-bold mx-1">${p.predScoreA} - ${p.predScoreB}</span>
-            ${scorers.length ? `<span class="text-slate-500">| هدافين: ${scorers.map(escapeHtml).join('، ')}</span>` : ''}
+            ${scorerNamesHtml ? `<span class="text-slate-500">| هدافين: </span>${scorerNamesHtml}` : ''}
             <span class="mx-1">| ${pts}</span>
           </div>`;
         })
@@ -282,19 +301,55 @@ function roundPredictions(round, data) {
 
 function usersPage() {
   const rows = users.listAll();
+  const admins = users.listAdmins();
   const totals = logic.computeTotals();
+  const manualPoints = logic.manualPointsByUser();
+  const canDemote = admins.length > 1;
+
+  const adminsHtml = admins
+    .map((a) => {
+      return `<tr>
+        <td class="px-3 py-2">${escapeHtml(a.name)} 👑</td>
+        <td class="px-3 py-2">
+          ${
+            canDemote
+              ? `<form method="post" action="/admin/users/${a.id}/admin" class="inline" data-confirm="تأكيد إلغاء صلاحية الأدمن عن ${escapeHtml(a.name)}؟">
+                  <input type="hidden" name="is_admin" value="0" />
+                  <button class="text-xs text-rose-600 font-medium">إلغاء صلاحية الأدمن</button>
+                </form>`
+              : `<span class="text-xs text-slate-400">آخر أدمن — ما يمكن إلغاؤه</span>`
+          }
+        </td>
+      </tr>`;
+    })
+    .join('');
+
   const rowsHtml = rows
     .map((u) => {
       const total = totals[u.id] || 0;
+      const manual = manualPoints[u.id] || 0;
       return `<tr>
         <td class="px-3 py-2">${escapeHtml(u.name)}</td>
-        <td class="px-3 py-2 text-center">${total}</td>
+        <td class="px-3 py-2 text-center">${total}${manual ? `<div class="text-xs text-slate-400">(منها ${manual > 0 ? '+' : ''}${manual} يدوي)</div>` : ''}</td>
         <td class="px-3 py-2 text-center">${u.miss_streak}</td>
         <td class="px-3 py-2 text-center">${u.status === 'frozen' ? '❄️ مجمّد' : '✅ نشط'}</td>
         <td class="px-3 py-2">
           <form method="post" action="/admin/users/${u.id}/status" class="inline">
             <input type="hidden" name="status" value="${u.status === 'frozen' ? 'active' : 'frozen'}" />
             <button class="text-xs ${u.status === 'frozen' ? 'text-emerald-700' : 'text-rose-600'} font-medium">${u.status === 'frozen' ? 'إلغاء التجميد' : 'تجميد'}</button>
+          </form>
+        </td>
+        <td class="px-3 py-2">
+          <form method="post" action="/admin/users/${u.id}/points" class="flex gap-1">
+            <input name="delta" type="number" placeholder="+/- نقاط" required class="border border-slate-300 rounded px-2 py-1 text-xs w-20" />
+            <input name="reason" placeholder="السبب (اختياري)" class="border border-slate-300 rounded px-2 py-1 text-xs w-28" />
+            <button class="text-xs text-emerald-700 font-medium">إضافة</button>
+          </form>
+        </td>
+        <td class="px-3 py-2">
+          <form method="post" action="/admin/users/${u.id}/admin" class="inline" data-confirm="تأكيد ترقية ${escapeHtml(u.name)} لأدمن؟ راح يقدر يسوي كل شي تسويه بلوحة التحكم.">
+            <input type="hidden" name="is_admin" value="1" />
+            <button class="text-xs text-purple-700 font-medium">ترقية لأدمن</button>
           </form>
         </td>
         <td class="px-3 py-2">
@@ -310,12 +365,20 @@ function usersPage() {
   return `
     <a href="/admin" class="text-sm text-slate-500">← رجوع للوحة التحكم</a>
     <h1 class="text-xl font-bold mt-1 mb-4">إدارة المشتركين (${rows.length})</h1>
+
+    <h2 class="font-bold mb-2 text-sm">الأدمنز الحاليين (${admins.length})</h2>
+    <div class="bg-white border border-slate-200 rounded-xl overflow-hidden mb-4">
+      <table class="w-full text-sm">
+        <tbody class="divide-y divide-slate-100">${adminsHtml}</tbody>
+      </table>
+    </div>
+
     <div class="bg-white border border-slate-200 rounded-xl overflow-x-auto">
       <table class="w-full text-sm whitespace-nowrap">
         <thead class="bg-slate-50 text-slate-500"><tr>
-          <th class="px-3 py-2 text-right">الاسم</th><th class="px-3 py-2">النقاط</th><th class="px-3 py-2">غياب متتالي</th><th class="px-3 py-2">الحالة</th><th class="px-3 py-2"></th><th class="px-3 py-2">إعادة تعيين باسوورد</th>
+          <th class="px-3 py-2 text-right">الاسم</th><th class="px-3 py-2">النقاط</th><th class="px-3 py-2">غياب متتالي</th><th class="px-3 py-2">الحالة</th><th class="px-3 py-2"></th><th class="px-3 py-2">إضافة/خصم نقاط</th><th class="px-3 py-2"></th><th class="px-3 py-2">إعادة تعيين باسوورد</th>
         </tr></thead>
-        <tbody class="divide-y divide-slate-100">${rowsHtml || `<tr><td colspan="6" class="px-3 py-6 text-center text-slate-400">لا يوجد مشتركين بعد</td></tr>`}</tbody>
+        <tbody class="divide-y divide-slate-100">${rowsHtml || `<tr><td colspan="8" class="px-3 py-6 text-center text-slate-400">لا يوجد مشتركين بعد</td></tr>`}</tbody>
       </table>
     </div>
   `;
@@ -449,5 +512,37 @@ module.exports = function (router) {
     if (pw.length < 4) return redirect(res, '/admin/users', 'كلمة المرور قصيرة.', 'error');
     users.resetPassword(Number(req.params.id), pw);
     redirect(res, '/admin/users', 'تم تغيير كلمة المرور ✅');
+  });
+
+  router.post('/admin/users/:id/points', async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const id = Number(req.params.id);
+    const delta = parseInt(req.body.delta, 10);
+    if (Number.isNaN(delta) || delta === 0) return redirect(res, '/admin/users', 'لازم تكتب رقم نقاط صحيح (موجب أو سالب).', 'error');
+    logic.addAdjustment(id, delta, String(req.body.reason || '').trim());
+    redirect(res, '/admin/users', `تمت إضافة ${delta > 0 ? '+' : ''}${delta} نقطة ✅`);
+  });
+
+  router.post('/admin/users/:id/admin', async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const id = Number(req.params.id);
+    const makeAdmin = req.body.is_admin === '1';
+    if (!makeAdmin) {
+      const admins = users.listAdmins();
+      if (admins.length <= 1 && admins[0].id === id) {
+        return redirect(res, '/admin/users', 'ما يمكن إلغاء صلاحية آخر أدمن بالموقع.', 'error');
+      }
+    }
+    users.setAdmin(id, makeAdmin);
+    redirect(res, '/admin/users', makeAdmin ? 'تمت الترقية لأدمن ✅' : 'تم إلغاء صلاحية الأدمن ✅');
+  });
+
+  router.post('/admin/predictions/:id/credit-scorer', async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const id = Number(req.params.id);
+    const result = logic.creditManualScorer(id);
+    const backTo = result.roundId ? `/admin/rounds/${result.roundId}/predictions` : '/admin';
+    if (!result.ok) return redirect(res, backTo, result.error, 'error');
+    redirect(res, backTo, `تمت إضافة +${result.delta} نقطة لـ ${result.userName} ✅`);
   });
 };

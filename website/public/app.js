@@ -38,6 +38,9 @@
       var ok = window.confirm('تأكيد إرسال التوقع؟ لا يمكنك تعديله بعد الإرسال.');
       if (!ok) e.preventDefault();
     }
+    if (form.dataset && form.dataset.confirm) {
+      if (!window.confirm(form.dataset.confirm)) e.preventDefault();
+    }
   });
 
   // Admin "كل التوقعات" page: clicking a participant's name toggles their

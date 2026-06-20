@@ -5,7 +5,11 @@ function normName(s) {
 }
 
 function normScorer(s) {
-  return String(s || '').trim().replace(/\s+/g, ' ').toLowerCase();
+  // Strip Latin diacritics (e.g. "Mbappé" -> "Mbappe") so accent differences
+  // between what a participant types and what's officially recorded don't
+  // cost them the scorer bonus.
+  const deaccented = String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '');
+  return deaccented.trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
 function escapeHtml(s) {

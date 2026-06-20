@@ -1,12 +1,16 @@
 'use strict';
-const { normScorer } = require('./util');
+const { resolveScorerKey } = require('./scorer-aliases');
 
 // Multiset intersection count between predicted and actual scorer name lists.
+// Names are resolved through the alias dictionary first (lib/scorer-aliases.js)
+// so e.g. a participant writing "ميسي" still matches an official record of
+// "Lionel Messi" for any player we recognize; unrecognized players fall back
+// to plain normalized-text matching, same as before.
 function countScorerMatches(predicted, actual) {
-  const remaining = actual.map(normScorer);
+  const remaining = actual.map(resolveScorerKey);
   let count = 0;
   for (const raw of predicted) {
-    const p = normScorer(raw);
+    const p = resolveScorerKey(raw);
     const idx = remaining.indexOf(p);
     if (idx !== -1) {
       remaining.splice(idx, 1);
@@ -14,6 +18,24 @@ function countScorerMatches(predicted, actual) {
     }
   }
   return count;
+}
+
+// Same multiset matching as countScorerMatches, but returns a per-name
+// true/false flag (same order/length as `predicted`) instead of just a
+// total — used by the admin "كل التوقعات" page to show which predicted
+// scorer names already matched automatically, so the admin only needs to
+// manually credit the ones that didn't.
+function scorerMatchFlags(predicted, actual) {
+  const remaining = actual.map(resolveScorerKey);
+  return predicted.map((raw) => {
+    const p = resolveScorerKey(raw);
+    const idx = remaining.indexOf(p);
+    if (idx !== -1) {
+      remaining.splice(idx, 1);
+      return true;
+    }
+    return false;
+  });
 }
 
 function outcome(scoreA, scoreB) {
@@ -53,4 +75,4 @@ function gradePrediction(pred, finalA, finalB, finalScorersA, finalScorersB, isD
   return { points, perfect, scorerPoints, basePoints };
 }
 
-module.exports = { countScorerMatches, outcome, gradePrediction };
+module.exports = { countScorerMatches, scorerMatchFlags, outcome, gradePrediction };

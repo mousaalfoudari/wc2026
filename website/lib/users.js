@@ -45,4 +45,12 @@ function resetPassword(id, newPassword) {
   db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, id);
 }
 
-module.exports = { findByName, findById, createUser, checkLogin, listAll, setStatus, resetPassword };
+function listAdmins() {
+  return db.prepare("SELECT * FROM users WHERE is_admin = 1 ORDER BY created_at ASC").all();
+}
+
+function setAdmin(id, isAdmin) {
+  db.prepare('UPDATE users SET is_admin = ? WHERE id = ?').run(isAdmin ? 1 : 0, id);
+}
+
+module.exports = { findByName, findById, createUser, checkLogin, listAll, setStatus, resetPassword, listAdmins, setAdmin };

@@ -1,7 +1,7 @@
 'use strict';
 const db = require('./db');
 const { dayKey, safeJsonParse, nowIso } = require('./util');
-const { gradePrediction } = require('./scoring');
+const { gradePrediction, scorerMatchFlags } = require('./scoring');
 
 // ---------- Rounds & matches ----------
 
@@ -147,15 +147,35 @@ function getRoundPredictionsByMatch(roundId) {
     )
     .all(...matchIds);
 
+  const matchById = new Map(matches.map((m) => [m.id, m]));
   const byMatch = new Map(matches.map((m) => [m.id, []]));
   const predictedUserIds = new Map(matches.map((m) => [m.id, new Set()]));
   for (const r of rows) {
+    const match = matchById.get(r.match_id);
+    const predScorersA = safeJsonParse(r.pred_scorers_a, []);
+    const predScorersB = safeJsonParse(r.pred_scorers_b, []);
+    // Scorer bonus only ever applies when the score prediction is an exact
+    // match (see gradePrediction in lib/scoring.js) — so the manual
+    // "احسبه صحيح" correction button should only be offered in that case.
+    const exactScore = !!match.graded && r.pred_score_a === match.final_score_a && r.pred_score_b === match.final_score_b;
+    let scorerMatchA = [];
+    let scorerMatchB = [];
+    if (match.graded) {
+      const finalScorersA = safeJsonParse(match.final_scorers_a, []);
+      const finalScorersB = safeJsonParse(match.final_scorers_b, []);
+      scorerMatchA = scorerMatchFlags(predScorersA, finalScorersA);
+      scorerMatchB = scorerMatchFlags(predScorersB, finalScorersB);
+    }
     byMatch.get(r.match_id).push({
+      id: r.id,
       userName: r.user_name,
       predScoreA: r.pred_score_a,
       predScoreB: r.pred_score_b,
-      predScorersA: safeJsonParse(r.pred_scorers_a, []),
-      predScorersB: safeJsonParse(r.pred_scorers_b, []),
+      predScorersA,
+      predScorersB,
+      scorerMatchA,
+      scorerMatchB,
+      canCreditScorer: exactScore,
       isDouble: !!r.is_double,
       pointsEarned: r.points_earned,
     });
@@ -297,6 +317,50 @@ function leaderboard() {
     .sort((a, b) => b.total - a.total);
 }
 
+// Manual point adjustments — used by the admin to credit/debit points outside
+// match grading (e.g. points a participant already earned before the
+// competition started being tracked on the site). Stored as a delta + reason
+// in the existing `adjustments` table; computeTotals() already folds these
+// into each user's total, so the leaderboard re-sorts itself automatically.
+function addAdjustment(userId, delta, reason) {
+  db.prepare('INSERT INTO adjustments (user_id, delta, reason) VALUES (?, ?, ?)').run(userId, delta, reason || 'تعديل يدوي');
+}
+
+function manualPointsByUser() {
+  const out = {};
+  db.prepare('SELECT user_id, SUM(delta) as s FROM adjustments GROUP BY user_id')
+    .all()
+    .forEach((row) => {
+      out[row.user_id] = row.s;
+    });
+  return out;
+}
+
+// Manual scorer-name correction: the admin looked at a prediction whose
+// scorer name didn't auto-match (e.g. a spelling/alias our dictionary
+// doesn't cover yet) and confirmed it's actually correct. Credits the same
+// +2 (or +4 if it was the participant's "double" pick) directly onto that
+// prediction's points_earned — not via the `adjustments` table — so the
+// per-match breakdown on the admin predictions page and the leaderboard
+// total both stay consistent with a single source of truth.
+function creditManualScorer(predictionId) {
+  const pred = db.prepare('SELECT * FROM predictions WHERE id = ?').get(predictionId);
+  if (!pred) return { ok: false, error: 'التوقع غير موجود.' };
+  if (pred.points_earned == null) return { ok: false, error: 'هذي المباراة لسا ما تصحّحت.' };
+
+  const match = getMatch(pred.match_id);
+  if (!match) return { ok: false, error: 'المباراة غير موجودة.' };
+
+  const exact = pred.pred_score_a === match.final_score_a && pred.pred_score_b === match.final_score_b;
+  if (!exact) return { ok: false, error: 'توقع النتيجة ما طابق بالضبط، فمكافأة الهداف ما تنطبق على هذا التوقع.' };
+
+  const delta = pred.is_double ? 4 : 2;
+  db.prepare('UPDATE predictions SET points_earned = points_earned + ? WHERE id = ?').run(delta, predictionId);
+
+  const user = db.prepare('SELECT name FROM users WHERE id = ?').get(pred.user_id);
+  return { ok: true, delta, roundId: match.round_id, userName: user ? user.name : '' };
+}
+
 // ---------- Miss-streak processing ----------
 
 function processRoundLocks() {
@@ -361,5 +425,8 @@ module.exports = {
   useJoker,
   computeTotals,
   leaderboard,
+  addAdjustment,
+  manualPointsByUser,
+  creditManualScorer,
   processRoundLocks,
 };
