@@ -11,6 +11,54 @@ function shell(title, body, active) {
   return { title, body, active };
 }
 
+// Standalone print page (no nav/header) — opens the browser's print dialog
+// automatically so the admin can pick "حفظ كـ PDF" without any extra library.
+function leaderboardPrintPage(rows) {
+  const rowsHtml = rows
+    .map((u, i) => {
+      const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}`;
+      return `<tr>
+        <td style="padding:6px 10px;text-align:center;font-weight:bold;">${medal}</td>
+        <td style="padding:6px 10px;">${escapeHtml(u.name)}${u.status === 'frozen' ? ' ❄️' : ''}</td>
+        <td style="padding:6px 10px;text-align:center;font-weight:bold;">${u.total}</td>
+      </tr>`;
+    })
+    .join('');
+
+  const today = new Date().toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric' });
+
+  return `<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<title>الترتيب العام — كأس العالم 2026</title>
+<style>
+  body { font-family: 'Tajawal', system-ui, sans-serif; padding: 24px; color: #1e293b; }
+  h1 { font-size: 20px; margin-bottom: 2px; }
+  .sub { color: #64748b; font-size: 12px; margin-bottom: 16px; }
+  table { width: 100%; border-collapse: collapse; }
+  thead { background: #f1f5f9; }
+  th { padding: 8px 10px; text-align: center; font-size: 13px; color: #475569; }
+  th:nth-child(2) { text-align: right; }
+  tbody tr:nth-child(even) { background: #f8fafc; }
+  td { font-size: 13px; border-top: 1px solid #e2e8f0; }
+  @media print {
+    body { padding: 0; }
+  }
+</style>
+</head>
+<body>
+  <h1>🏆 الترتيب العام — مسابقة توقعات كأس العالم 2026</h1>
+  <div class="sub">تاريخ التصدير: ${today}</div>
+  <table>
+    <thead><tr><th>#</th><th>الاسم</th><th>النقاط</th></tr></thead>
+    <tbody>${rowsHtml || '<tr><td colspan="3" style="text-align:center;padding:20px;color:#94a3b8;">لا يوجد مشتركين بعد</td></tr>'}</tbody>
+  </table>
+  <script>window.onload = () => window.print();</script>
+</body>
+</html>`;
+}
+
 function dashboard() {
   const rounds = logic.listRounds();
   const allUsers = users.listAll();
@@ -38,6 +86,7 @@ function dashboard() {
           <button class="bg-slate-600 text-white rounded-lg px-4 py-2 text-sm font-bold hover:bg-slate-700">🔄 تحديث النتائج الآن</button>
         </form>
         <a href="/admin/rounds/new" class="bg-emerald-600 text-white rounded-lg px-4 py-2 text-sm font-bold hover:bg-emerald-700">+ جولة جديدة</a>
+        <a href="/admin/leaderboard/pdf" target="_blank" class="bg-white border border-slate-300 text-slate-700 rounded-lg px-4 py-2 text-sm font-bold hover:bg-slate-50">📄 تصدير الترتيب PDF</a>
       </div>
     </div>
     <p class="text-xs text-slate-400 mb-4">⚽ دور المجموعات (٧٢ مباراة) يتحمّل أوتوماتيك، والنتائج تتحدث من مصدر خارجي كل ١٠ دقائق تقريباً (المصدر نفسه يتحدث تقريباً مرة كل يوم، فما هو لحظي بالثانية). أدوار خروج المغلوب تضيفها يدوياً لما تتحدد الفرق.</p>
@@ -134,7 +183,10 @@ function roundManage(round) {
 
   return `
     <a href="/admin" class="text-sm text-slate-500">← رجوع للوحة التحكم</a>
-    <h1 class="text-xl font-bold mt-1 mb-4">${escapeHtml(round.name)} ${round.locked ? '🔒' : '🟢'}</h1>
+    <div class="flex items-center justify-between mt-1 mb-4">
+      <h1 class="text-xl font-bold">${escapeHtml(round.name)} ${round.locked ? '🔒' : '🟢'}</h1>
+      ${round.matches.length ? `<a href="/admin/rounds/${round.id}/predictions" class="text-sm text-emerald-700 font-medium">👁️ شوف كل التوقعات</a>` : ''}
+    </div>
 
     <h2 class="font-bold mb-2">المباريات</h2>
     ${matchesHtml}
@@ -176,6 +228,44 @@ function roundManage(round) {
           : ''
       }
     </div>
+  `;
+}
+
+function roundPredictions(round, data) {
+  const sections = data
+    .map(({ match, predictions, missing }) => {
+      const rows = predictions
+        .map((p) => {
+          const scorers = [...p.predScorersA, ...p.predScorersB];
+          const pts =
+            p.pointsEarned != null
+              ? `<span class="font-bold ${p.pointsEarned > 0 ? 'text-emerald-600' : p.pointsEarned < 0 ? 'text-rose-600' : 'text-slate-500'}">${p.pointsEarned}</span>`
+              : '<span class="text-slate-400">—</span>';
+          return `<tr>
+            <td class="px-3 py-1.5">${escapeHtml(p.userName)} ${p.isDouble ? '⭐' : ''}</td>
+            <td class="px-3 py-1.5 text-center font-bold whitespace-nowrap">${p.predScoreA} - ${p.predScoreB}</td>
+            <td class="px-3 py-1.5 text-xs text-slate-500">${scorers.length ? scorers.map(escapeHtml).join('، ') : ''}</td>
+            <td class="px-3 py-1.5 text-center">${pts}</td>
+          </tr>`;
+        })
+        .join('');
+
+      return `<div class="bg-white border border-slate-200 rounded-xl p-3 mb-3">
+        <div class="font-bold mb-1">${escapeHtml(match.team_a)} × ${escapeHtml(match.team_b)} <span class="text-xs text-slate-400 font-normal">${fmtDateTime(match.kickoff_at)}</span></div>
+        <div class="text-xs text-slate-400 mb-2">${predictions.length} توقّع${missing.length ? ' — ما توقع: ' + missing.map(escapeHtml).join('، ') : ''}</div>
+        ${
+          predictions.length
+            ? `<table class="w-full text-sm"><thead class="text-slate-400"><tr><th class="px-3 py-1 text-right">الاسم</th><th class="px-3 py-1">التوقع</th><th class="px-3 py-1">الهدافين</th><th class="px-3 py-1">نقاط</th></tr></thead><tbody class="divide-y divide-slate-100">${rows}</tbody></table>`
+            : '<div class="text-center text-slate-400 text-sm py-2">لا توجد توقعات بعد</div>'
+        }
+      </div>`;
+    })
+    .join('');
+
+  return `
+    <a href="/admin/rounds/${round.id}" class="text-sm text-slate-500">← رجوع لإدارة الجولة</a>
+    <h1 class="text-xl font-bold mt-1 mb-4">كل التوقعات — ${escapeHtml(round.name)}</h1>
+    ${sections || `<div class="text-slate-400 text-sm py-8 text-center">لا توجد مباريات بهذي الجولة</div>`}
   `;
 }
 
@@ -226,6 +316,12 @@ module.exports = function (router) {
     sendHtml(res, layout({ title: 'الأدمن', user: req.user, active: 'admin', msg: req.flashMsg, msgType: req.flashType, body: dashboard() }));
   });
 
+  router.get('/admin/leaderboard/pdf', async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const rows = logic.leaderboard();
+    sendHtml(res, leaderboardPrintPage(rows));
+  });
+
   router.post('/admin/sync-results', async (req, res) => {
     if (!requireAdmin(req, res)) return;
     const result = await syncLiveResults();
@@ -251,6 +347,14 @@ module.exports = function (router) {
     const round = logic.getRound(Number(req.params.id));
     if (!round) return redirect(res, '/admin', 'الجولة غير موجودة.', 'error');
     sendHtml(res, layout({ title: round.name, user: req.user, active: 'admin', msg: req.flashMsg, msgType: req.flashType, body: roundManage(round) }));
+  });
+
+  router.get('/admin/rounds/:id/predictions', async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const round = logic.getRound(Number(req.params.id));
+    if (!round) return redirect(res, '/admin', 'الجولة غير موجودة.', 'error');
+    const data = logic.getRoundPredictionsByMatch(round.id);
+    sendHtml(res, layout({ title: 'كل التوقعات', user: req.user, active: 'admin', body: roundPredictions(round, data) }));
   });
 
   router.post('/admin/rounds/:id/matches', async (req, res) => {

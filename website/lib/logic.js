@@ -131,6 +131,45 @@ function submitBonusAnswer(userId, roundId, choiceIndex) {
   return true;
 }
 
+// Full per-match prediction breakdown for the admin: every user's predicted
+// score/scorers for each match in the round, plus the names of users who
+// haven't predicted that match yet. Visible regardless of lock status.
+function getRoundPredictionsByMatch(roundId) {
+  const matches = listMatchesForRound(roundId);
+  if (!matches.length) return [];
+
+  const allUsers = db.prepare("SELECT id, name FROM users WHERE is_admin = 0 ORDER BY name COLLATE NOCASE ASC").all();
+  const matchIds = matches.map((m) => m.id);
+  const placeholders = matchIds.map(() => '?').join(',');
+  const rows = db
+    .prepare(
+      `SELECT p.*, u.name as user_name FROM predictions p JOIN users u ON u.id = p.user_id WHERE p.match_id IN (${placeholders})`
+    )
+    .all(...matchIds);
+
+  const byMatch = new Map(matches.map((m) => [m.id, []]));
+  const predictedUserIds = new Map(matches.map((m) => [m.id, new Set()]));
+  for (const r of rows) {
+    byMatch.get(r.match_id).push({
+      userName: r.user_name,
+      predScoreA: r.pred_score_a,
+      predScoreB: r.pred_score_b,
+      predScorersA: safeJsonParse(r.pred_scorers_a, []),
+      predScorersB: safeJsonParse(r.pred_scorers_b, []),
+      isDouble: !!r.is_double,
+      pointsEarned: r.points_earned,
+    });
+    predictedUserIds.get(r.match_id).add(r.user_id);
+  }
+
+  return matches.map((m) => {
+    const predicted = byMatch.get(m.id).sort((a, b) => a.userName.localeCompare(b.userName, 'ar'));
+    const predictedIds = predictedUserIds.get(m.id);
+    const missing = allUsers.filter((u) => !predictedIds.has(u.id)).map((u) => u.name);
+    return { match: m, predictions: predicted, missing };
+  });
+}
+
 // ---------- Grading ----------
 
 function gradeMatch(matchId, finalA, finalB, scorersA, scorersB) {
@@ -310,6 +349,7 @@ module.exports = {
   doubleEligibleMatchIds,
   getUserPrediction,
   getUserPredictionsForRound,
+  getRoundPredictionsByMatch,
   submitPrediction,
   getRoundPick,
   setDoublePick,
