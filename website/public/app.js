@@ -39,4 +39,14 @@
       if (!ok) e.preventDefault();
     }
   });
+
+  // Admin "كل التوقعات" page: clicking a participant's name toggles their
+  // prediction detail open/closed, so the page starts as names-only.
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest && e.target.closest('.pred-toggle-btn');
+    if (!btn) return;
+    var target = document.getElementById(btn.dataset.target);
+    if (!target) return;
+    target.classList.toggle('hidden');
+  });
 })();

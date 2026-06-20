@@ -237,19 +237,27 @@ function roundManage(round) {
 function roundPredictions(round, data) {
   const sections = data
     .map(({ match, predictions, missing }) => {
-      const rows = predictions
-        .map((p) => {
+      const names = predictions
+        .map((p, i) => {
+          const detailId = `pd-${match.id}-${i}`;
+          return `<button type="button" class="pred-toggle-btn bg-slate-100 hover:bg-emerald-100 text-slate-700 text-sm rounded-full px-3 py-1" data-target="${detailId}">${escapeHtml(p.userName)}${p.isDouble ? ' ⭐' : ''}</button>`;
+        })
+        .join('');
+
+      const details = predictions
+        .map((p, i) => {
+          const detailId = `pd-${match.id}-${i}`;
           const scorers = [...p.predScorersA, ...p.predScorersB];
           const pts =
             p.pointsEarned != null
-              ? `<span class="font-bold ${p.pointsEarned > 0 ? 'text-emerald-600' : p.pointsEarned < 0 ? 'text-rose-600' : 'text-slate-500'}">${p.pointsEarned}</span>`
-              : '<span class="text-slate-400">—</span>';
-          return `<tr>
-            <td class="px-3 py-1.5">${escapeHtml(p.userName)} ${p.isDouble ? '⭐' : ''}</td>
-            <td class="px-3 py-1.5 text-center font-bold whitespace-nowrap">${p.predScoreA} - ${p.predScoreB}</td>
-            <td class="px-3 py-1.5 text-xs text-slate-500">${scorers.length ? scorers.map(escapeHtml).join('، ') : ''}</td>
-            <td class="px-3 py-1.5 text-center">${pts}</td>
-          </tr>`;
+              ? `<span class="font-bold ${p.pointsEarned > 0 ? 'text-emerald-600' : p.pointsEarned < 0 ? 'text-rose-600' : 'text-slate-500'}">${p.pointsEarned} نقطة</span>`
+              : '<span class="text-slate-400">بدون نقاط بعد</span>';
+          return `<div id="${detailId}" class="pred-detail hidden border-t border-slate-100 mt-2 pt-2 text-sm">
+            <span class="font-bold">${escapeHtml(p.userName)}${p.isDouble ? ' ⭐' : ''}:</span>
+            <span class="font-bold mx-1">${p.predScoreA} - ${p.predScoreB}</span>
+            ${scorers.length ? `<span class="text-slate-500">| هدافين: ${scorers.map(escapeHtml).join('، ')}</span>` : ''}
+            <span class="mx-1">| ${pts}</span>
+          </div>`;
         })
         .join('');
 
@@ -258,7 +266,7 @@ function roundPredictions(round, data) {
         <div class="text-xs text-slate-400 mb-2">${predictions.length} توقّع${missing.length ? ' — ما توقع: ' + missing.map(escapeHtml).join('، ') : ''}</div>
         ${
           predictions.length
-            ? `<table class="w-full text-sm"><thead class="text-slate-400"><tr><th class="px-3 py-1 text-right">الاسم</th><th class="px-3 py-1">التوقع</th><th class="px-3 py-1">الهدافين</th><th class="px-3 py-1">نقاط</th></tr></thead><tbody class="divide-y divide-slate-100">${rows}</tbody></table>`
+            ? `<div class="flex flex-wrap gap-1.5">${names}</div>${details}`
             : '<div class="text-center text-slate-400 text-sm py-2">لا توجد توقعات بعد</div>'
         }
       </div>`;

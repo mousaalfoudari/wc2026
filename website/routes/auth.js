@@ -7,7 +7,9 @@ const { makeSessionCookie, clearSessionCookie } = require('../lib/auth');
 function card(inner) {
   return `
     <div class="max-w-sm mx-auto mt-6">
-      <img src="/banner.jpg" alt="مسابقة توقعات كأس العالم 2026" class="w-full rounded-2xl shadow-sm mb-4" />
+      <div class="w-full rounded-2xl shadow-sm mb-4 overflow-hidden" style="aspect-ratio: 700 / 480;">
+        <img src="/banner.jpg" alt="مسابقة توقعات كأس العالم 2026" style="width: 100%; height: 100%; object-fit: cover; object-position: top center;" />
+      </div>
       <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-6">${inner}</div>
     </div>`;
 }
