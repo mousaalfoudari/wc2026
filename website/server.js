@@ -9,6 +9,8 @@ const { serveStatic, sendHtml, sendText } = require('./lib/http');
 const { layout, redirect } = require('./lib/render');
 const users = require('./lib/users');
 const logic = require('./lib/logic');
+const { seedGroupStage } = require('./lib/seed-schedule');
+const { syncLiveResults } = require('./lib/livesync');
 
 const router = new Router();
 require('./routes/auth')(router);
@@ -37,6 +39,28 @@ function ensureAdminAccount() {
 }
 
 ensureAdminAccount();
+
+// Auto-load the 72 group-stage matches on first boot (no-op if rounds
+// already exist — important since the free-tier DB gets wiped on every
+// redeploy/restart, so this needs to re-run itself every time).
+try {
+  const seedResult = seedGroupStage();
+  if (seedResult.ok) {
+    console.log(`✔ تم تحميل جدول دور المجموعات أوتوماتيك: ${seedResult.rounds} جولة، ${seedResult.matches} مباراة.`);
+  }
+} catch (e) {
+  console.error('seedGroupStage error:', e);
+}
+
+// Live results: check immediately on boot (to catch up on anything already
+// finished), then every 10 minutes while the server is awake. Source feed
+// updates roughly once a day, so this isn't minute-by-minute live — just
+// "no admin typing required".
+const LIVESYNC_INTERVAL_MS = 10 * 60 * 1000;
+syncLiveResults().catch((e) => console.error('livesync (startup) error:', e));
+setInterval(() => {
+  syncLiveResults().catch((e) => console.error('livesync (interval) error:', e));
+}, LIVESYNC_INTERVAL_MS);
 
 const server = http.createServer(async (req, res) => {
   try {

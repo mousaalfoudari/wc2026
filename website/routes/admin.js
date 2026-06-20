@@ -5,6 +5,7 @@ const { requireAdmin } = require('../lib/guard');
 const { toArray, fmtDateTime, safeJsonParse } = require('../lib/util');
 const logic = require('../lib/logic');
 const users = require('../lib/users');
+const { syncLiveResults, FEED_URL } = require('../lib/livesync');
 
 function shell(title, body, active) {
   return { title, body, active };
@@ -32,8 +33,14 @@ function dashboard() {
   return `
     <div class="flex items-center justify-between mb-4">
       <h1 class="text-xl font-bold">لوحة تحكم الأدمن</h1>
-      <a href="/admin/rounds/new" class="bg-emerald-600 text-white rounded-lg px-4 py-2 text-sm font-bold hover:bg-emerald-700">+ جولة جديدة</a>
+      <div class="flex gap-2">
+        <form method="post" action="/admin/sync-results">
+          <button class="bg-slate-600 text-white rounded-lg px-4 py-2 text-sm font-bold hover:bg-slate-700">🔄 تحديث النتائج الآن</button>
+        </form>
+        <a href="/admin/rounds/new" class="bg-emerald-600 text-white rounded-lg px-4 py-2 text-sm font-bold hover:bg-emerald-700">+ جولة جديدة</a>
+      </div>
     </div>
+    <p class="text-xs text-slate-400 mb-4">⚽ دور المجموعات (٧٢ مباراة) يتحمّل أوتوماتيك، والنتائج تتحدث من مصدر خارجي كل ١٠ دقائق تقريباً (المصدر نفسه يتحدث تقريباً مرة كل يوم، فما هو لحظي بالثانية). أدوار خروج المغلوب تضيفها يدوياً لما تتحدد الفرق.</p>
     <div class="grid grid-cols-3 gap-3 mb-6">
       <div class="bg-white border border-slate-200 rounded-xl p-4 text-center">
         <div class="text-2xl font-bold text-emerald-700">${allUsers.length}</div>
@@ -217,6 +224,13 @@ module.exports = function (router) {
   router.get('/admin', async (req, res) => {
     if (!requireAdmin(req, res)) return;
     sendHtml(res, layout({ title: 'الأدمن', user: req.user, active: 'admin', msg: req.flashMsg, msgType: req.flashType, body: dashboard() }));
+  });
+
+  router.post('/admin/sync-results', async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const result = await syncLiveResults();
+    if (!result.ok) return redirect(res, '/admin', `فشل الاتصال بمصدر النتائج (${FEED_URL}): ${result.error}`, 'error');
+    redirect(res, '/admin', `تم التحقق من النتائج — ${result.updated} مباراة تم تصحيحها أوتوماتيك ✅`);
   });
 
   router.get('/admin/rounds/new', async (req, res) => {
