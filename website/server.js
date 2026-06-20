@@ -67,7 +67,7 @@ const server = http.createServer(async (req, res) => {
     const u = new URL(req.url, 'http://localhost');
     const pathname = decodeURIComponent(u.pathname);
 
-    if (pathname !== '/' && (pathname.startsWith('/style.css') || pathname.startsWith('/app.js') || pathname.startsWith('/favicon'))) {
+    if (pathname !== '/' && (pathname.startsWith('/style.css') || pathname.startsWith('/app.js') || pathname.startsWith('/favicon') || pathname.startsWith('/banner'))) {
       if (serveStatic(req, res, pathname)) return;
     }
 

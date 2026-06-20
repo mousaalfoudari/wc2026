@@ -5,7 +5,11 @@ const users = require('../lib/users');
 const { makeSessionCookie, clearSessionCookie } = require('../lib/auth');
 
 function card(inner) {
-  return `<div class="max-w-sm mx-auto bg-white border border-slate-200 rounded-2xl shadow-sm p-6 mt-6">${inner}</div>`;
+  return `
+    <div class="max-w-sm mx-auto mt-6">
+      <img src="/banner.jpg" alt="مسابقة توقعات كأس العالم 2026" class="w-full rounded-2xl shadow-sm mb-4" />
+      <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-6">${inner}</div>
+    </div>`;
 }
 
 function registerPage() {

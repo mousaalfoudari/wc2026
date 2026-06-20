@@ -73,7 +73,10 @@ function dashboard() {
         <td class="px-3 py-2 text-sm text-slate-500">${r.matches.length}</td>
         <td class="px-3 py-2 text-sm">${status}</td>
         <td class="px-3 py-2 text-sm ${ungraded ? 'text-amber-600' : 'text-slate-400'}">${ungraded ? `${ungraded} بدون نتيجة` : 'كل النتائج مدخلة'}</td>
-        <td class="px-3 py-2"><a href="/admin/rounds/${r.id}" class="text-emerald-700 font-medium">إدارة</a></td>
+        <td class="px-3 py-2 whitespace-nowrap">
+          <a href="/admin/rounds/${r.id}" class="text-emerald-700 font-medium">إدارة</a>
+          ${r.matches.length ? `<a href="/admin/rounds/${r.id}/predictions" class="text-slate-500 font-medium mr-2">👁️ التوقعات</a>` : ''}
+        </td>
       </tr>`;
     })
     .join('');
