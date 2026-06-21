@@ -174,7 +174,7 @@ module.exports = function (router) {
 
     const predictions = logic.getUserPredictionsForRound(req.user.id, round.id);
     const eligibleDoubleIds = logic.doubleEligibleMatchIds(round.id);
-    const pick = logic.getRoundPick(req.user.id, round.id);
+    const doublePickId = logic.activeDoubleMatchId(req.user.id, round.id);
     const bonusAns = logic.getBonusAnswer(req.user.id, round.id);
     const jokers = logic.getAvailableJokers(req.user.id);
 
@@ -184,7 +184,7 @@ module.exports = function (router) {
         : '';
 
     const cards = round.matches
-      .map((m) => matchCard(m, predictions[m.id], eligibleDoubleIds, pick ? pick.double_match_id : null, round.locked))
+      .map((m) => matchCard(m, predictions[m.id], eligibleDoubleIds, doublePickId, round.locked))
       .join('');
 
     const body = `

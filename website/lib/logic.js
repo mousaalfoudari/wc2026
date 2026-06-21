@@ -97,8 +97,25 @@ function getRoundPick(userId, roundId) {
   return db.prepare('SELECT * FROM round_picks WHERE user_id = ? AND round_id = ?').get(userId, roundId);
 }
 
+// A round's double pick only counts as "locked" while the prediction that
+// set it still exists. Normally deletePrediction() clears double_match_id
+// itself when that prediction is removed, but this is a defensive fallback
+// for any other path (or already-stale data from before that cleanup
+// existed) — without it, an orphaned double_match_id pointing at a
+// since-deleted prediction would permanently block every match's double
+// checkbox with no way for the participant to ever pick one again.
+function activeDoubleMatchId(userId, roundId) {
+  const pick = getRoundPick(userId, roundId);
+  if (!pick || pick.double_match_id == null) return null;
+  const stillHasPrediction = db
+    .prepare('SELECT 1 FROM predictions WHERE user_id = ? AND match_id = ?')
+    .get(userId, pick.double_match_id);
+  return stillHasPrediction ? pick.double_match_id : null;
+}
+
 // First match submitted with the double checkbox checked locks in the
-// round's double pick — once double_match_id is set, later attempts (e.g.
+// round's double pick — once double_match_id is set (and still backed by an
+// existing prediction, see activeDoubleMatchId), later attempts (e.g.
 // checking the box on a different match afterwards) are silently ignored
 // rather than moving it, so a participant can never end up confused about
 // which match is actually the double for the round (it's whichever one they
@@ -106,7 +123,7 @@ function getRoundPick(userId, roundId) {
 function setDoublePick(userId, roundId, matchId) {
   const existing = getRoundPick(userId, roundId);
   if (existing) {
-    if (existing.double_match_id != null) return false;
+    if (activeDoubleMatchId(userId, roundId) != null) return false;
     db.prepare('UPDATE round_picks SET double_match_id = ? WHERE id = ?').run(matchId, existing.id);
   } else {
     db.prepare('INSERT INTO round_picks (user_id, round_id, double_match_id) VALUES (?, ?, ?)').run(
@@ -449,6 +466,18 @@ function deletePrediction(predictionId) {
 
   db.prepare('DELETE FROM predictions WHERE id = ?').run(predictionId);
 
+  // If this deleted prediction was the one that locked in the round's double
+  // (see setDoublePick), free it back up — otherwise round_picks.double_match_id
+  // would keep pointing at a match the user no longer has a prediction for,
+  // permanently locking every other match's double checkbox with no way for
+  // the participant to ever pick a double again this round.
+  if (match) {
+    const pick = db.prepare('SELECT * FROM round_picks WHERE user_id = ? AND round_id = ?').get(pred.user_id, match.round_id);
+    if (pick && pick.double_match_id === pred.match_id) {
+      db.prepare('UPDATE round_picks SET double_match_id = NULL WHERE id = ?').run(pick.id);
+    }
+  }
+
   return { ok: true, roundId: match ? match.round_id : null, userName: user ? user.name : '' };
 }
 
@@ -538,6 +567,7 @@ module.exports = {
   getRoundPredictionsByMatch,
   submitPrediction,
   getRoundPick,
+  activeDoubleMatchId,
   setDoublePick,
   getBonusAnswer,
   submitBonusAnswer,
