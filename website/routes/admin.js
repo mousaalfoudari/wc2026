@@ -1,5 +1,5 @@
 'use strict';
-const { layout, redirect, escapeHtml } = require('../lib/render');
+const { layout, redirect, escapeHtml, lockCountdownHtml } = require('../lib/render');
 const { sendHtml } = require('../lib/http');
 const { requireAdmin } = require('../lib/guard');
 const { toArray, fmtDateTime, safeJsonParse } = require('../lib/util');
@@ -161,7 +161,12 @@ function matchRow(m) {
         <div class="font-bold">${escapeHtml(m.team_a)} ${m.final_score_a} - ${m.final_score_b} ${escapeHtml(m.team_b)}</div>
         <div class="text-xs text-slate-400">${fmtDateTime(m.kickoff_at)} ${sa.length || sb.length ? '| هدافين: ' + [...sa, ...sb].map(escapeHtml).join('، ') : ''}</div>
       </div>
-      <span class="text-emerald-600 text-sm font-medium">✅ تمت إضافة النتيجة</span>
+      <div class="flex items-center gap-2">
+        <span class="text-emerald-600 text-sm font-medium">✅ تمت إضافة النتيجة</span>
+        <form method="post" action="/admin/matches/${m.id}/ungrade" class="inline" data-confirm="تأكيد التراجع عن نتيجة ${escapeHtml(m.team_a)} × ${escapeHtml(m.team_b)}؟ بترجع المباراة بدون نتيجة وتنحذف كل النقاط المحسوبة عليها (تقدر تدخل النتيجة الصحيحة بعدين من جديد).">
+          <button class="text-[10px] bg-rose-100 hover:bg-rose-200 text-rose-700 rounded px-1.5 py-0.5">↩️ تراجع عن النتيجة</button>
+        </form>
+      </div>
     </div>`;
   }
 
@@ -195,6 +200,7 @@ function roundManage(round) {
       <h1 class="text-xl font-bold">${escapeHtml(round.name)} ${round.locked ? '🔒' : '🟢'}</h1>
       ${round.matches.length ? `<a href="/admin/rounds/${round.id}/predictions" class="text-sm text-emerald-700 font-medium">👁️ شوف كل التوقعات</a>` : ''}
     </div>
+    ${lockCountdownHtml(round)}
 
     <h2 class="font-bold mb-2">المباريات</h2>
     ${matchesHtml}
@@ -513,6 +519,18 @@ module.exports = function (router) {
 
     logic.gradeMatch(matchId, finalA, finalB, scorersA, scorersB);
     redirect(res, `/admin/rounds/${match.round_id}`, 'تم حفظ النتيجة وحساب نقاط الكل ✅');
+  });
+
+  router.post('/admin/matches/:id/ungrade', async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const matchId = Number(req.params.id);
+    const result = logic.ungradeMatch(matchId);
+    if (!result.ok) return redirect(res, '/admin', result.error, 'error');
+    const backTo = `/admin/rounds/${result.roundId}`;
+    if (result.usedJokerWarning) {
+      return redirect(res, backTo, 'تم التراجع عن النتيجة، لكن فيه جوكر مأخوذ من هذي المباراة استُخدم بالفعل — تأكد منه يدوياً.', 'error');
+    }
+    redirect(res, backTo, 'تم التراجع عن النتيجة ✅ — المباراة رجعت بدون نتيجة.');
   });
 
   router.post('/admin/rounds/:id/bonus', async (req, res) => {

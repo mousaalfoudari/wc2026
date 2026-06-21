@@ -74,6 +74,18 @@ function navHtml(user, active) {
   </header>`;
 }
 
+// A small badge showing the live countdown to a round's deadline (the
+// kickoff of its earliest match — the same moment `round.locked` flips to
+// true). Rendered once server-side with the deadline in `data-countdown`;
+// public/app.js ticks the visible text client-side every second so it
+// doesn't need a page refresh to stay accurate. Returns '' once the round
+// is already locked (or has no matches yet), since there's nothing to count
+// down to.
+function lockCountdownHtml(round) {
+  if (!round || round.locked || !round.lock_time) return '';
+  return `<div data-countdown="${round.lock_time}" class="text-sm text-amber-700 font-medium mb-3">⏳ جاري الحساب...</div>`;
+}
+
 function redirect(res, location, msg, msgType) {
   let url = location;
   if (msg) {
@@ -84,4 +96,4 @@ function redirect(res, location, msg, msgType) {
   res.end();
 }
 
-module.exports = { layout, redirect, escapeHtml };
+module.exports = { layout, redirect, escapeHtml, lockCountdownHtml };

@@ -116,4 +116,40 @@
     if (!target) return;
     target.classList.toggle('hidden');
   });
+
+  // Live countdown to a round's prediction deadline (rendered server-side
+  // via lockCountdownHtml() in lib/render.js — used on both /predict and the
+  // admin round page). Ticks every second client-side so it stays accurate
+  // without needing a page refresh.
+  function formatRemaining(ms) {
+    var totalSeconds = Math.floor(ms / 1000);
+    var days = Math.floor(totalSeconds / 86400);
+    var hours = Math.floor((totalSeconds % 86400) / 3600);
+    var minutes = Math.floor((totalSeconds % 3600) / 60);
+    var seconds = totalSeconds % 60;
+    if (days > 0) return days + ' يوم و ' + hours + ' ساعة';
+    if (hours > 0) return hours + ' ساعة و ' + minutes + ' دقيقة';
+    if (minutes > 0) return minutes + ' دقيقة و ' + seconds + ' ثانية';
+    return seconds + ' ثانية';
+  }
+
+  function tickCountdowns() {
+    var els = document.querySelectorAll('[data-countdown]');
+    els.forEach(function (el) {
+      var remaining = new Date(el.dataset.countdown).getTime() - Date.now();
+      if (remaining <= 0) {
+        el.textContent = '🔒 قفلت الجولة الحين — حدّث الصفحة';
+        el.classList.add('text-rose-500');
+      } else {
+        el.textContent = '⏳ متبقي على قفل الجولة: ' + formatRemaining(remaining);
+      }
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    if (document.querySelector('[data-countdown]')) {
+      tickCountdowns();
+      setInterval(tickCountdowns, 1000);
+    }
+  });
 })();

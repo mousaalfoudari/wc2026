@@ -227,6 +227,34 @@ function gradeMatch(matchId, finalA, finalB, scorersA, scorersB) {
   }
 }
 
+// Reverts a graded match back to "not played yet" — for when the admin
+// entered a result by mistake or just to test, before the match actually
+// happened. Clears the final score/scorers and un-grades every prediction
+// for that match (points_earned/is_double/perfect reset), so participants
+// can be graded again normally once the real result comes in.
+function ungradeMatch(matchId) {
+  const match = getMatch(matchId);
+  if (!match) return { ok: false, error: 'المباراة غير موجودة.' };
+  if (!match.graded) return { ok: false, error: 'هذي المباراة لسا ما انحسبت نتيجتها أصلاً.' };
+
+  db.prepare(
+    `UPDATE matches SET status='scheduled', final_score_a=NULL, final_score_b=NULL, final_scorers_a=NULL, final_scorers_b=NULL, graded=0 WHERE id=?`
+  ).run(matchId);
+
+  db.prepare('UPDATE predictions SET points_earned = NULL, is_double = 0, perfect = 0 WHERE match_id = ?').run(matchId);
+
+  // Jokers earned from this match's grading: safe to remove if still unused.
+  // One already 'used' already moved points off another participant via the
+  // adjustments table — auto-reverting that silently would be misleading, so
+  // we leave it and just flag it for the admin to check manually.
+  const usedCount = db
+    .prepare("SELECT COUNT(*) as c FROM jokers WHERE earned_match_id = ? AND status != 'available'")
+    .get(matchId).c;
+  db.prepare("DELETE FROM jokers WHERE earned_match_id = ? AND status = 'available'").run(matchId);
+
+  return { ok: true, roundId: match.round_id, usedJokerWarning: usedCount > 0 };
+}
+
 function gradeBonus(roundId, correctIndex) {
   db.prepare('UPDATE rounds SET bonus_correct_index = ?, bonus_graded = 1 WHERE id = ?').run(correctIndex, roundId);
   const answers = db.prepare('SELECT * FROM bonus_answers WHERE round_id = ?').all(roundId);
@@ -461,6 +489,7 @@ module.exports = {
   getBonusAnswer,
   submitBonusAnswer,
   gradeMatch,
+  ungradeMatch,
   gradeBonus,
   getAvailableJokers,
   useJoker,

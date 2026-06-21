@@ -1,5 +1,5 @@
 'use strict';
-const { layout, redirect, escapeHtml } = require('../lib/render');
+const { layout, redirect, escapeHtml, lockCountdownHtml } = require('../lib/render');
 const { sendHtml } = require('../lib/http');
 const { requireUser } = require('../lib/guard');
 const { toArray, fmtDateTime, safeJsonParse } = require('../lib/util');
@@ -204,7 +204,8 @@ module.exports = function (router) {
 
     const body = `
       ${roundPicker(rounds, round.id)}
-      <h2 class="text-lg font-bold mb-3">${escapeHtml(round.name)} ${round.locked ? '🔒 مقفولة' : '🟢 مفتوحة'}</h2>
+      <h2 class="text-lg font-bold mb-1">${escapeHtml(round.name)} ${round.locked ? '🔒 مقفولة' : '🟢 مفتوحة'}</h2>
+      ${lockCountdownHtml(round)}
       ${frozenNotice}
       ${req.user.status !== 'frozen' ? jokerBanner(jokers, req.user.id) : ''}
       ${req.user.status !== 'frozen' ? doublePicker(round, eligibleDoubleIds, pick ? pick.double_match_id : null) : ''}
