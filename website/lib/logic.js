@@ -264,6 +264,23 @@ function gradeBonus(roundId, correctIndex) {
   }
 }
 
+// Reverts a graded bonus question back to "not graded yet" — for when the
+// admin pressed "تصحيح الآن" by mistake or just to test, before the round
+// actually started. Clears the ±7 points already applied to every
+// participant's bonus answer for that round, so totals go back to normal.
+// The saved question/options/correct-index are left untouched so the admin
+// doesn't have to re-enter them — only the grading itself is undone.
+function ungradeBonus(roundId) {
+  const round = getRound(roundId);
+  if (!round) return { ok: false, error: 'الجولة غير موجودة.' };
+  if (!round.bonus_graded) return { ok: false, error: 'سؤال البونص لسا ما انحسب أصلاً.' };
+
+  db.prepare('UPDATE rounds SET bonus_graded = 0 WHERE id = ?').run(roundId);
+  db.prepare('UPDATE bonus_answers SET points = NULL WHERE round_id = ?').run(roundId);
+
+  return { ok: true };
+}
+
 // ---------- Jokers ----------
 
 function getAvailableJokers(userId) {
@@ -491,6 +508,7 @@ module.exports = {
   gradeMatch,
   ungradeMatch,
   gradeBonus,
+  ungradeBonus,
   getAvailableJokers,
   useJoker,
   computeTotals,

@@ -236,7 +236,14 @@ function roundManage(round) {
       </form>
       ${
         round.bonus_question
-          ? `<form method="post" action="/admin/rounds/${round.id}/bonus/grade" class="mt-2">
+          ? round.bonus_graded
+            ? `<div class="mt-2 flex items-center gap-2">
+                <span class="text-emerald-600 text-sm font-medium">✅ تم تصحيح سؤال البونص</span>
+                <form method="post" action="/admin/rounds/${round.id}/bonus/ungrade" class="inline" data-confirm="تأكيد التراجع عن تصحيح سؤال البونص؟ بترجع نقاط كل المشتركين لهذي الجولة كأنه ما انحسب.">
+                  <button class="text-xs bg-rose-100 hover:bg-rose-200 text-rose-700 rounded px-2 py-1">↩️ تراجع عن التصحيح</button>
+                </form>
+              </div>`
+            : `<form method="post" action="/admin/rounds/${round.id}/bonus/grade" class="mt-2">
               <button class="bg-purple-600 text-white rounded-lg px-3 py-1.5 text-sm font-bold hover:bg-purple-700">تصحيح إجابات سؤال البونص الآن</button>
             </form>`
           : ''
@@ -552,6 +559,14 @@ module.exports = function (router) {
     }
     logic.gradeBonus(roundId, round.bonus_correct_index);
     redirect(res, `/admin/rounds/${roundId}`, 'تم تصحيح إجابات البونص ✅');
+  });
+
+  router.post('/admin/rounds/:id/bonus/ungrade', async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const roundId = Number(req.params.id);
+    const result = logic.ungradeBonus(roundId);
+    if (!result.ok) return redirect(res, `/admin/rounds/${roundId}`, result.error, 'error');
+    redirect(res, `/admin/rounds/${roundId}`, 'تم التراجع عن تصحيح سؤال البونص ✅ — النقاط رجعت طبيعية.');
   });
 
   router.get('/admin/users', async (req, res) => {
