@@ -74,16 +74,19 @@ function navHtml(user, active) {
   </header>`;
 }
 
-// A small badge showing the live countdown to a round's deadline (the
-// kickoff of its earliest match — the same moment `round.locked` flips to
-// true). Rendered once server-side with the deadline in `data-countdown`;
-// public/app.js ticks the visible text client-side every second so it
-// doesn't need a page refresh to stay accurate. Returns '' once the round
-// is already locked (or has no matches yet), since there's nothing to count
-// down to.
+// A prominent live countdown card showing the time left until a round's
+// deadline (the kickoff of its earliest match — the same moment
+// `round.locked` flips to true). Rendered once server-side with the
+// deadline in `data-countdown`; public/app.js ticks the big clock display
+// (days + HH:MM:SS) client-side every second so it stays accurate without a
+// page refresh. Returns '' once the round is already locked (or has no
+// matches yet), since there's nothing to count down to.
 function lockCountdownHtml(round) {
   if (!round || round.locked || !round.lock_time) return '';
-  return `<div data-countdown="${round.lock_time}" class="text-sm text-amber-700 font-medium mb-3">⏳ جاري الحساب...</div>`;
+  return `<div data-countdown="${round.lock_time}" class="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-3 text-center">
+    <div class="text-xs text-amber-700 font-medium mb-1">⏳ الوقت المتبقي لقفل الجولة</div>
+    <div class="countdown-display text-3xl font-extrabold text-amber-800 tabular-nums tracking-wider">--:--:--</div>
+  </div>`;
 }
 
 function redirect(res, location, msg, msgType) {
