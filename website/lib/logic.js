@@ -355,6 +355,22 @@ function creditManualScorer(predictionId) {
   return { ok: true, delta, roundId: match.round_id, userName: user ? user.name : '' };
 }
 
+// Admin override to remove a prediction entirely (e.g. a test/mistaken
+// submission). Works whether the match is graded or not — since totals are
+// always computed live via SUM() over the predictions table, deleting the
+// row automatically removes any points it had contributed too.
+function deletePrediction(predictionId) {
+  const pred = db.prepare('SELECT * FROM predictions WHERE id = ?').get(predictionId);
+  if (!pred) return { ok: false, error: 'التوقع غير موجود.' };
+
+  const match = getMatch(pred.match_id);
+  const user = db.prepare('SELECT name FROM users WHERE id = ?').get(pred.user_id);
+
+  db.prepare('DELETE FROM predictions WHERE id = ?').run(predictionId);
+
+  return { ok: true, roundId: match ? match.round_id : null, userName: user ? user.name : '' };
+}
+
 // ---------- Miss-streak processing ----------
 
 function processRoundLocks() {
@@ -453,6 +469,7 @@ module.exports = {
   addAdjustment,
   manualPointsByUser,
   creditManualScorer,
+  deletePrediction,
   processRoundLocks,
   listTeamNames,
   getRoster,

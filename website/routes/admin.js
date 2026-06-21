@@ -281,6 +281,9 @@ function roundPredictions(round, data) {
             <span class="font-bold mx-1">${p.predScoreA} - ${p.predScoreB}</span>
             ${scorerNamesHtml ? `<span class="text-slate-500">| هدافين: </span>${scorerNamesHtml}` : ''}
             <span class="mx-1">| ${pts}</span>
+            <form method="post" action="/admin/predictions/${p.id}/delete" class="inline" data-confirm="تأكيد حذف توقع ${escapeHtml(p.userName)} لهذي المباراة؟ ما يمكن التراجع.">
+              <button class="text-[10px] bg-rose-100 hover:bg-rose-200 text-rose-700 rounded px-1.5 py-0.5 align-middle">🗑️ حذف التوقع</button>
+            </form>
           </div>`;
         })
         .join('');
@@ -599,5 +602,14 @@ module.exports = function (router) {
     const backTo = result.roundId ? `/admin/rounds/${result.roundId}/predictions` : '/admin';
     if (!result.ok) return redirect(res, backTo, result.error, 'error');
     redirect(res, backTo, `تمت إضافة +${result.delta} نقطة لـ ${result.userName} ✅`);
+  });
+
+  router.post('/admin/predictions/:id/delete', async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const id = Number(req.params.id);
+    const result = logic.deletePrediction(id);
+    const backTo = result.roundId ? `/admin/rounds/${result.roundId}/predictions` : '/admin';
+    if (!result.ok) return redirect(res, backTo, result.error, 'error');
+    redirect(res, backTo, `تم حذف توقع ${result.userName} ✅`);
   });
 };
