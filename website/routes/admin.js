@@ -59,6 +59,54 @@ function leaderboardPrintPage(rows) {
 </html>`;
 }
 
+// Same standalone print/PDF approach as leaderboardPrintPage above, but for a
+// single round's points summary (admin-only — see roundPointsSummary in lib/logic.js).
+function roundPointsPrintPage(round, rows) {
+  const rowsHtml = rows
+    .map((u, i) => {
+      const medal = i === 0 && u.points > 0 ? '🥇' : i === 1 && u.points > 0 ? '🥈' : i === 2 && u.points > 0 ? '🥉' : `${i + 1}`;
+      return `<tr>
+        <td style="padding:6px 10px;text-align:center;font-weight:bold;">${medal}</td>
+        <td style="padding:6px 10px;">${escapeHtml(u.name)}</td>
+        <td style="padding:6px 10px;text-align:center;font-weight:bold;">${u.points}</td>
+      </tr>`;
+    })
+    .join('');
+
+  const today = new Date().toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric' });
+
+  return `<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<title>نقاط ${escapeHtml(round.name)} — كأس العالم 2026</title>
+<style>
+  body { font-family: 'Tajawal', system-ui, sans-serif; padding: 24px; color: #1e293b; }
+  h1 { font-size: 20px; margin-bottom: 2px; }
+  .sub { color: #64748b; font-size: 12px; margin-bottom: 16px; }
+  table { width: 100%; border-collapse: collapse; }
+  thead { background: #f1f5f9; }
+  th { padding: 8px 10px; text-align: center; font-size: 13px; color: #475569; }
+  th:nth-child(2) { text-align: right; }
+  tbody tr:nth-child(even) { background: #f8fafc; }
+  td { font-size: 13px; border-top: 1px solid #e2e8f0; }
+  @media print {
+    body { padding: 0; }
+  }
+</style>
+</head>
+<body>
+  <h1>🏅 نقاط ${escapeHtml(round.name)} — مسابقة توقعات كأس العالم 2026</h1>
+  <div class="sub">تاريخ التصدير: ${today}</div>
+  <table>
+    <thead><tr><th>#</th><th>الاسم</th><th>النقاط</th></tr></thead>
+    <tbody>${rowsHtml || '<tr><td colspan="3" style="text-align:center;padding:20px;color:#94a3b8;">لا يوجد مشتركين بعد</td></tr>'}</tbody>
+  </table>
+  <script>window.onload = () => window.print();</script>
+</body>
+</html>`;
+}
+
 function dashboard() {
   const rounds = logic.listRounds();
   const allUsers = users.listAll();
@@ -256,7 +304,10 @@ function roundPredictions(round, data, bonusAnswers, pointsSummary) {
   const pointsSummaryHtml =
     pointsSummary && pointsSummary.length
       ? `<div class="bg-white border border-slate-200 rounded-xl p-3 mb-4">
-          <div class="font-bold mb-2">🏅 نقاط هذي الجولة (لكل مشترك)</div>
+          <div class="flex items-center justify-between mb-2">
+            <div class="font-bold">🏅 نقاط هذي الجولة (لكل مشترك)</div>
+            <a href="/admin/rounds/${round.id}/points/pdf" target="_blank" class="text-xs bg-white border border-slate-300 text-slate-700 rounded-lg px-2 py-1 font-bold hover:bg-slate-50">📄 تصدير PDF</a>
+          </div>
           <div class="space-y-1">
             ${pointsSummary
               .map(
@@ -493,6 +544,14 @@ module.exports = function (router) {
     if (!requireAdmin(req, res)) return;
     const rows = logic.leaderboard();
     sendHtml(res, leaderboardPrintPage(rows));
+  });
+
+  router.get('/admin/rounds/:id/points/pdf', async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const round = logic.getRound(Number(req.params.id));
+    if (!round) return redirect(res, '/admin', 'الجولة غير موجودة.', 'error');
+    const rows = logic.roundPointsSummary(round.id);
+    sendHtml(res, roundPointsPrintPage(round, rows));
   });
 
   router.post('/admin/sync-results', async (req, res) => {
