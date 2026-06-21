@@ -90,6 +90,23 @@
     }
   });
 
+  // Only one match per round can be "الدبل" — but each match is its own
+  // independent <form>, so the browser has no native concept linking their
+  // checkboxes together (unlike same-name radio buttons in one form). Without
+  // this, a participant can visibly check the double box on two different
+  // match cards at once before submitting either, which looks like a bug
+  // even though only the one actually submitted ends up sticking server-side.
+  // This makes the on-screen behavior match a single radio-group: checking
+  // one instantly unchecks every other match's double box on the page.
+  document.addEventListener('change', function (e) {
+    var t = e.target;
+    if (t.tagName === 'INPUT' && t.type === 'checkbox' && /^set_double_/.test(t.name) && t.checked) {
+      document.querySelectorAll('input[type="checkbox"]').forEach(function (cb) {
+        if (cb !== t && /^set_double_/.test(cb.name)) cb.checked = false;
+      });
+    }
+  });
+
   // "لاعب آخر" chosen in a generated dropdown: swap it for a free-text field.
   document.addEventListener('change', function (e) {
     if (e.target.tagName === 'SELECT' && e.target.value === OTHER_VALUE) {
