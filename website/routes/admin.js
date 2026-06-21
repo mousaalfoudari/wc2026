@@ -384,7 +384,7 @@ function roundPredictions(round, data, bonusAnswers, pointsSummary) {
 
           return `<div id="${detailId}" class="pred-detail hidden border-t border-slate-100 mt-2 pt-2 text-sm">
             <span class="font-bold">${escapeHtml(p.userName)}${p.isDouble ? ' ⭐' : ''}:</span>
-            <span class="font-bold mx-1">${p.predScoreA} - ${p.predScoreB}</span>
+            <span class="font-bold mx-1">${escapeHtml(match.team_a)} ${p.predScoreA} - ${p.predScoreB} ${escapeHtml(match.team_b)}</span>
             ${scorerNamesHtml ? `<span class="text-slate-500">| هدافين: </span>${scorerNamesHtml}` : ''}
             <span class="mx-1">| ${pts}</span>
             <form method="post" action="/admin/predictions/${p.id}/delete" class="inline" data-confirm="تأكيد حذف توقع ${escapeHtml(p.userName)} لهذي المباراة؟ ما يمكن التراجع.">
