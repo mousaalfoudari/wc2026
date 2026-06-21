@@ -85,9 +85,9 @@ function matchCard(match, prediction, eligibleDoubleIds, doublePickId, locked) {
     <div id="scorers-b-${id}" class="flex flex-wrap gap-2 justify-center mt-1"></div>
     ${
       eligibleDoubleIds.has(id)
-        ? `<label class="flex items-center justify-center gap-2 mt-3 text-sm text-amber-700">
+        ? `<label class="flex items-center justify-center gap-2 mt-3 p-2 rounded-lg border border-amber-200 bg-amber-50 text-sm text-amber-800 cursor-pointer">
             <input type="checkbox" name="set_double" value="1" ${doublePickId === id ? 'checked' : ''} />
-            اعتبر هذي مباراة الدبل لهذي الجولة
+            ⭐ اعتبرها مباراة الدبل (نقاطها تتضاعف) — مباراة واحدة فقط بكل الجولة
           </label>`
         : ''
     }
@@ -143,25 +143,6 @@ function jokerBanner(jokers, currentUserId) {
     .join('');
 }
 
-function doublePicker(round, eligibleIds, currentPickId) {
-  if (round.locked || eligibleIds.size === 0) return '';
-  const eligibleMatches = round.matches.filter((m) => eligibleIds.has(m.id));
-  const opts = [`<option value="">بدون دبل</option>`]
-    .concat(
-      eligibleMatches.map(
-        (m) => `<option value="${m.id}" ${currentPickId === m.id ? 'selected' : ''}>${escapeHtml(m.team_a)} × ${escapeHtml(m.team_b)}</option>`
-      )
-    )
-    .join('');
-  return `<form method="post" action="/predict/round/${round.id}/double" class="bg-white border border-amber-200 rounded-xl p-4 mb-4">
-    <div class="font-bold text-amber-700 mb-2">⭐ ميزة الدبل: اختر مباراة من الجولة تتضاعف نقاطها</div>
-    <div class="flex gap-2">
-      <select name="match_id" class="flex-1 border border-slate-300 rounded-lg px-2 py-1.5 text-sm">${opts}</select>
-      <button class="bg-amber-500 text-white rounded-lg px-4 py-1.5 text-sm font-bold hover:bg-amber-600">حفظ</button>
-    </div>
-  </form>`;
-}
-
 module.exports = function (router) {
   router.get('/predict', async (req, res) => {
     if (!requireUser(req, res)) return;
@@ -208,9 +189,8 @@ module.exports = function (router) {
       ${lockCountdownHtml(round)}
       ${frozenNotice}
       ${req.user.status !== 'frozen' ? jokerBanner(jokers, req.user.id) : ''}
-      ${req.user.status !== 'frozen' ? doublePicker(round, eligibleDoubleIds, pick ? pick.double_match_id : null) : ''}
-      ${bonusSection(round, req.user, bonusAns)}
       ${cards}
+      ${bonusSection(round, req.user, bonusAns)}
     `;
 
     sendHtml(
@@ -253,22 +233,6 @@ module.exports = function (router) {
     }
 
     redirect(res, `/predict?round=${round.id}`, 'تم تسجيل توقعك ✅');
-  });
-
-  router.post('/predict/round/:roundId/double', async (req, res) => {
-    if (!requireUser(req, res)) return;
-    const roundId = Number(req.params.roundId);
-    const round = logic.getRound(roundId);
-    if (!round) return redirect(res, '/predict', 'الجولة غير موجودة.', 'error');
-    if (req.user.status === 'frozen') return redirect(res, `/predict?round=${roundId}`, 'حسابك مجمّد.', 'error');
-    if (round.locked) return redirect(res, `/predict?round=${roundId}`, 'الجولة مقفولة.', 'error');
-
-    const matchId = req.body.match_id ? Number(req.body.match_id) : null;
-    const eligible = logic.doubleEligibleMatchIds(roundId);
-    if (matchId && !eligible.has(matchId)) return redirect(res, `/predict?round=${roundId}`, 'هذي المباراة مو مؤهلة للدبل.', 'error');
-
-    logic.setDoublePick(req.user.id, roundId, matchId);
-    redirect(res, `/predict?round=${roundId}`, 'تم حفظ اختيار الدبل ⭐');
   });
 
   router.post('/predict/round/:roundId/bonus', async (req, res) => {

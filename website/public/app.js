@@ -12,14 +12,25 @@
     return el;
   }
 
+  // A roster line can optionally carry an official English name after "="
+  // (e.g. "ميسي = Messi", saved from /admin/rosters) so auto-graded results
+  // from the English live-results feed match correctly. That English part
+  // is only for matching on the server — participants and the admin should
+  // never see it in the dropdown, just the Arabic name before the "=".
+  function rosterDisplayName(raw) {
+    var idx = raw.indexOf('=');
+    return idx === -1 ? raw.trim() : raw.slice(0, idx).trim();
+  }
+
   // Builds a <select> of known players for one scorer slot, with an "other"
   // option that swaps itself for a free-text field (so an unlisted player —
   // e.g. a substitute not in the saved roster — can still be predicted).
   function playerSelect(name, placeholder, players, value) {
+    var displayNames = players.map(rosterDisplayName);
     // If the slot already holds a value that isn't in the roster (typed
     // before the roster existed, or picked "other" previously), keep it as
     // an editable text field instead of silently discarding it.
-    if (value && players.indexOf(value) === -1) {
+    if (value && displayNames.indexOf(value) === -1) {
       return textField(name, placeholder, value);
     }
     var select = document.createElement('select');
@@ -31,7 +42,7 @@
     blank.textContent = placeholder + ' — اختر';
     select.appendChild(blank);
 
-    players.forEach(function (p) {
+    displayNames.forEach(function (p) {
       var opt = document.createElement('option');
       opt.value = p;
       opt.textContent = p;

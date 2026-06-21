@@ -1,5 +1,6 @@
 'use strict';
-const { normScorer } = require('./util');
+const { normScorer, safeJsonParse } = require('./util');
+const db = require('./db');
 
 // Bridges the Arabic/English mismatch in scorer-name matching: official
 // results (admin-entered or auto-synced from the English results feed) are
@@ -61,16 +62,62 @@ for (const [key, variants] of Object.entries(PLAYER_ALIASES)) {
 
 const CANONICAL_KEYS = Object.keys(PLAYER_ALIASES);
 
+function escapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Admin-editable counterpart to PLAYER_ALIASES above: any roster line saved
+// from /admin/rosters in the form "اسم عربي = English Name" registers that
+// English name as an alias too — so the admin can teach the matcher a new
+// player themselves (for auto-graded results from the live feed, which are
+// always in English) without needing a code change. Lines with no "=" are
+// unaffected (same as before this feature existed). Re-read from the DB on
+// every call — rosters change rarely and this only runs during grading, not
+// on every page view — so admin edits apply immediately, no restart needed.
+function rosterAliasMaps() {
+  const exact = {};
+  const keys = [];
+  let rows;
+  try {
+    rows = db.prepare('SELECT players FROM team_rosters').all();
+  } catch (e) {
+    return { exact, keys };
+  }
+  for (const row of rows) {
+    const players = safeJsonParse(row.players, []);
+    for (const line of players) {
+      const idx = typeof line === 'string' ? line.indexOf('=') : -1;
+      if (idx === -1) continue;
+      const arName = line.slice(0, idx).trim();
+      const enName = line.slice(idx + 1).trim();
+      if (!arName || !enName) continue;
+      const enKey = normScorer(enName);
+      exact[normScorer(arName)] = enKey;
+      exact[enKey] = enKey;
+      if (keys.indexOf(enKey) === -1) keys.push(enKey);
+    }
+  }
+  return { exact, keys };
+}
+
 // Resolves a raw scorer name (Arabic alias, full English name, or surname
 // only) to a stable canonical key whenever we recognize the player, so e.g.
 // "ميسي" (predicted) and "Lionel Messi" (official record) compare equal.
-// Falls back to the plain normalized text for any player not in the list
-// above — identical to the matching behavior before this file existed.
+// Checks admin-added roster aliases first, then the static dictionary above,
+// then falls back to the plain normalized text for any player not in either
+// list — identical to the matching behavior before this file existed.
 function resolveScorerKey(raw) {
   const norm = normScorer(raw);
+  const roster = rosterAliasMaps();
+
+  if (roster.exact[norm]) return roster.exact[norm];
   if (ALIAS_LOOKUP[norm]) return ALIAS_LOOKUP[norm];
+
   for (const key of CANONICAL_KEYS) {
     if (new RegExp(`\\b${key}\\b`).test(norm)) return key;
+  }
+  for (const key of roster.keys) {
+    if (new RegExp(`\\b${escapeRegExp(key)}\\b`).test(norm)) return key;
   }
   return norm;
 }

@@ -423,7 +423,7 @@ function rostersPage() {
         </div>
         <form method="post" action="/admin/rosters" class="space-y-2">
           <input type="hidden" name="team_name" value="${escapeHtml(team)}" />
-          <textarea name="players" rows="4" placeholder="كل لاعب بسطر مستقل" class="w-full border border-slate-300 rounded-lg px-2 py-1.5 text-sm">${escapeHtml(players.join('\n'))}</textarea>
+          <textarea name="players" rows="4" placeholder="كل لاعب بسطر مستقل، مثال: ميسي = Messi" class="w-full border border-slate-300 rounded-lg px-2 py-1.5 text-sm">${escapeHtml(players.join('\n'))}</textarea>
           <button class="bg-emerald-600 text-white rounded-lg px-3 py-1.5 text-sm font-bold hover:bg-emerald-700">حفظ القائمة</button>
         </form>
       </div>`;
@@ -434,6 +434,7 @@ function rostersPage() {
     <a href="/admin" class="text-sm text-slate-500">← رجوع للوحة التحكم</a>
     <h1 class="text-xl font-bold mt-1 mb-1">قوائم لاعبي الفرق</h1>
     <p class="text-sm text-slate-500 mb-4">${doneCount} من ${teamNames.length} فريق عنده قائمة. أي فريق عنده قائمة، المشتركين يختارون الهداف من قائمة منسدلة بدل كتابة الاسم (وكذا أنت لما تدخل النتيجة الرسمية) — يضمن مطابقة دقيقة بدون أي اختلاف بالكتابة. الفرق اللي بلا قائمة تفضل تعمل بالكتابة الحرة كالسابق.</p>
+    <p class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">💡 تقدر تضيف الاسم الرسمي بالإنجليزي لأي لاعب بنفس السطر بصيغة <code class="font-mono">الاسم العربي = English Name</code> (مثال: <code class="font-mono">ميسي = Messi</code>) — هذا يخلي تحديث النتائج الأوتوماتيكي (اللي يجيك بالإنجليزي من المصدر الخارجي) يطابق توقعات المشتركين العربية لذاك اللاعب بدون أي تدخل يدوي منك أو مني. الجزء الإنجليزي ما يظهر للمشترك، فقط يستخدم بالمطابقة بالخلفية. كتابة الاسم العربي لوحده (بدون "=") تبقى تشتغل عادي كالسابق.</p>
     ${cards || `<div class="text-slate-400 text-sm py-8 text-center">لا توجد فرق بالجدول بعد</div>`}
   `;
 }
