@@ -409,6 +409,41 @@ function leaderboard() {
     .sort((a, b) => b.total - a.total);
 }
 
+// Admin-only "who got how many points THIS round" view (separate from the
+// participant-facing /leaderboard, which only ever shows the cumulative
+// total). Sums match points + bonus points for just this round, plus any
+// joker adjustments earned in this round (useJoker stamps earned_round_id on
+// the adjustment row) — manual point credits via addAdjustment have no
+// round_id and are intentionally excluded here, since those represent points
+// outside this site's round tracking (e.g. pre-existing points), and only
+// belong in the grand total, not any single round's breakdown.
+function roundPointsSummary(roundId) {
+  const users = db.prepare('SELECT id, name FROM users WHERE is_admin = 0 ORDER BY name COLLATE NOCASE ASC').all();
+  const points = {};
+  users.forEach((u) => (points[u.id] = 0));
+
+  db.prepare(
+    `SELECT p.user_id, SUM(p.points_earned) as s
+     FROM predictions p JOIN matches m ON m.id = p.match_id
+     WHERE m.round_id = ? AND p.points_earned IS NOT NULL
+     GROUP BY p.user_id`
+  )
+    .all(roundId)
+    .forEach((row) => (points[row.user_id] = (points[row.user_id] || 0) + row.s));
+
+  db.prepare('SELECT user_id, SUM(points) as s FROM bonus_answers WHERE round_id = ? AND points IS NOT NULL GROUP BY user_id')
+    .all(roundId)
+    .forEach((row) => (points[row.user_id] = (points[row.user_id] || 0) + row.s));
+
+  db.prepare('SELECT user_id, SUM(delta) as s FROM adjustments WHERE round_id = ? GROUP BY user_id')
+    .all(roundId)
+    .forEach((row) => (points[row.user_id] = (points[row.user_id] || 0) + row.s));
+
+  return users
+    .map((u) => ({ id: u.id, name: u.name, points: points[u.id] || 0 }))
+    .sort((a, b) => b.points - a.points);
+}
+
 // Manual point adjustments — used by the admin to credit/debit points outside
 // match grading (e.g. points a participant already earned before the
 // competition started being tracked on the site). Stored as a delta + reason
@@ -581,6 +616,7 @@ module.exports = {
   useJoker,
   computeTotals,
   leaderboard,
+  roundPointsSummary,
   addAdjustment,
   manualPointsByUser,
   creditManualScorer,

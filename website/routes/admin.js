@@ -252,7 +252,24 @@ function roundManage(round) {
   `;
 }
 
-function roundPredictions(round, data, bonusAnswers) {
+function roundPredictions(round, data, bonusAnswers, pointsSummary) {
+  const pointsSummaryHtml =
+    pointsSummary && pointsSummary.length
+      ? `<div class="bg-white border border-slate-200 rounded-xl p-3 mb-4">
+          <div class="font-bold mb-2">🏅 نقاط هذي الجولة (لكل مشترك)</div>
+          <div class="space-y-1">
+            ${pointsSummary
+              .map(
+                (u, i) => `<div class="flex items-center justify-between text-sm border-t border-slate-100 pt-1 first:border-t-0 first:pt-0">
+                  <span>${i === 0 && u.points > 0 ? '🥇 ' : ''}${escapeHtml(u.name)}</span>
+                  <span class="font-bold ${u.points > 0 ? 'text-emerald-600' : u.points < 0 ? 'text-rose-600' : 'text-slate-400'}">${u.points}</span>
+                </div>`
+              )
+              .join('')}
+          </div>
+        </div>`
+      : '';
+
   const bonusSection = round.bonus_question
     ? `<div class="bg-white border border-slate-200 rounded-xl p-3 mb-4">
         <div class="font-bold mb-1">🎯 سؤال البونص: ${escapeHtml(round.bonus_question)}</div>
@@ -341,6 +358,7 @@ function roundPredictions(round, data, bonusAnswers) {
   return `
     <a href="/admin/rounds/${round.id}" class="text-sm text-slate-500">← رجوع لإدارة الجولة</a>
     <h1 class="text-xl font-bold mt-1 mb-4">كل التوقعات — ${escapeHtml(round.name)}</h1>
+    ${pointsSummaryHtml}
     ${bonusSection}
     ${sections || `<div class="text-slate-400 text-sm py-8 text-center">لا توجد مباريات بهذي الجولة</div>`}
   `;
@@ -510,6 +528,7 @@ module.exports = function (router) {
     if (!round) return redirect(res, '/admin', 'الجولة غير موجودة.', 'error');
     const data = logic.getRoundPredictionsByMatch(round.id);
     const bonusAnswers = logic.getBonusAnswersForRound(round.id);
+    const pointsSummary = logic.roundPointsSummary(round.id);
     sendHtml(
       res,
       layout({
@@ -518,7 +537,7 @@ module.exports = function (router) {
         active: 'admin',
         msg: req.flashMsg,
         msgType: req.flashType,
-        body: roundPredictions(round, data, bonusAnswers),
+        body: roundPredictions(round, data, bonusAnswers, pointsSummary),
       })
     );
   });
