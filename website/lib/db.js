@@ -134,4 +134,19 @@ try {
   // column already exists — nothing to do.
 }
 
+// Migration: remembers exactly which two adjustments rows a joker use created
+// (the -5 to the victim, the +5 to the attacker), so an admin can cleanly
+// undo a joker use later (see ungradeJokerUse in lib/logic.js) without having
+// to guess which adjustment rows to remove.
+try {
+  db.exec('ALTER TABLE jokers ADD COLUMN victim_adjustment_id INTEGER;');
+} catch (e) {
+  // column already exists — nothing to do.
+}
+try {
+  db.exec('ALTER TABLE jokers ADD COLUMN attacker_adjustment_id INTEGER;');
+} catch (e) {
+  // column already exists — nothing to do.
+}
+
 module.exports = db;

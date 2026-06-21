@@ -656,6 +656,14 @@ module.exports = function (router) {
     redirect(res, backTo, 'تم التراجع عن النتيجة ✅ — المباراة رجعت بدون نتيجة.');
   });
 
+  router.post('/admin/jokers/:id/ungrade', async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const jokerId = Number(req.params.id);
+    const result = logic.ungradeJokerUse(jokerId);
+    if (!result.ok) return redirect(res, '/leaderboard', result.error, 'error');
+    redirect(res, '/leaderboard', 'تم التراجع عن استخدام الجوكر ✅ — رجعت النقاط وصار الجوكر متاح من جديد.');
+  });
+
   router.post('/admin/rounds/:id/bonus', async (req, res) => {
     if (!requireAdmin(req, res)) return;
     const roundId = Number(req.params.id);

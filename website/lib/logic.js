@@ -385,7 +385,7 @@ function jokerLockedTargetIdsThisRound() {
 function jokerUsageLog() {
   return db
     .prepare(
-      `SELECT j.used_at,
+      `SELECT j.id, j.used_at,
               ua.name as attackerName,
               uv.name as victimName,
               r.name as roundName
@@ -416,24 +416,54 @@ function useJoker(jokerId, userId, targetUserId) {
     return { ok: false, error: 'هذا اللاعب أُخذ منه جوكر بالفعل هذي الجولة (من لاعب ثاني) — اختر شخص آخر، أو جرب معه بالجولة الجاية.' };
   }
 
-  db.prepare('INSERT INTO adjustments (user_id, round_id, delta, reason) VALUES (?, ?, ?, ?)').run(
-    targetUserId,
-    joker.earned_round_id,
-    -5,
-    `جوكر مستخدم ضدك من قبل لاعب آخر`
-  );
-  db.prepare('INSERT INTO adjustments (user_id, round_id, delta, reason) VALUES (?, ?, ?, ?)').run(
-    userId,
-    joker.earned_round_id,
-    5,
-    `استخدام الجوكر`
-  );
-  db.prepare("UPDATE jokers SET status='used', used_against_user_id=?, used_round_id=?, used_at=? WHERE id=?").run(
-    targetUserId,
-    roundId,
-    nowIso(),
-    jokerId
-  );
+  const victimAdjId = db
+    .prepare('INSERT INTO adjustments (user_id, round_id, delta, reason) VALUES (?, ?, ?, ?)')
+    .run(targetUserId, joker.earned_round_id, -5, `جوكر مستخدم ضدك من قبل لاعب آخر`).lastInsertRowid;
+  const attackerAdjId = db
+    .prepare('INSERT INTO adjustments (user_id, round_id, delta, reason) VALUES (?, ?, ?, ?)')
+    .run(userId, joker.earned_round_id, 5, `استخدام الجوكر`).lastInsertRowid;
+  db.prepare(
+    "UPDATE jokers SET status='used', used_against_user_id=?, used_round_id=?, used_at=?, victim_adjustment_id=?, attacker_adjustment_id=? WHERE id=?"
+  ).run(targetUserId, roundId, nowIso(), victimAdjId, attackerAdjId, jokerId);
+  return { ok: true };
+}
+
+// Admin-only undo for a joker use — reverses the exact two adjustment rows
+// useJoker() created (restoring both players' points) and resets the joker
+// back to 'available' so it can be used again for real. Mousa needs this for
+// test/practice joker uses (his own, or by participants testing the
+// feature) that shouldn't count.
+//
+// Jokers used before victim_adjustment_id/attacker_adjustment_id existed
+// (already-live data) won't have those columns populated, so we fall back to
+// locating the matching adjustment rows the old way (same user/round/delta/
+// reason text useJoker used to insert, most recent match only) rather than
+// leaving stale points behind for that legacy data.
+function ungradeJokerUse(jokerId) {
+  const joker = db.prepare('SELECT * FROM jokers WHERE id = ?').get(jokerId);
+  if (!joker) return { ok: false, error: 'الجوكر غير موجود.' };
+  if (joker.status !== 'used') return { ok: false, error: 'هذا الجوكر غير مستخدم حالياً، ما فيه شي للتراجع عنه.' };
+
+  if (joker.victim_adjustment_id || joker.attacker_adjustment_id) {
+    if (joker.victim_adjustment_id) db.prepare('DELETE FROM adjustments WHERE id = ?').run(joker.victim_adjustment_id);
+    if (joker.attacker_adjustment_id) db.prepare('DELETE FROM adjustments WHERE id = ?').run(joker.attacker_adjustment_id);
+  } else {
+    const victimAdj = db
+      .prepare(
+        "SELECT id FROM adjustments WHERE user_id = ? AND round_id = ? AND delta = -5 AND reason = 'جوكر مستخدم ضدك من قبل لاعب آخر' ORDER BY id DESC LIMIT 1"
+      )
+      .get(joker.used_against_user_id, joker.earned_round_id);
+    const attackerAdj = db
+      .prepare("SELECT id FROM adjustments WHERE user_id = ? AND round_id = ? AND delta = 5 AND reason = 'استخدام الجوكر' ORDER BY id DESC LIMIT 1")
+      .get(joker.user_id, joker.earned_round_id);
+    if (victimAdj) db.prepare('DELETE FROM adjustments WHERE id = ?').run(victimAdj.id);
+    if (attackerAdj) db.prepare('DELETE FROM adjustments WHERE id = ?').run(attackerAdj.id);
+  }
+
+  db.prepare(
+    "UPDATE jokers SET status='available', used_against_user_id=NULL, used_round_id=NULL, used_at=NULL, victim_adjustment_id=NULL, attacker_adjustment_id=NULL WHERE id=?"
+  ).run(jokerId);
+
   return { ok: true };
 }
 
@@ -681,6 +711,7 @@ module.exports = {
   jokerLockedTargetIdsThisRound,
   jokerUsageLog,
   useJoker,
+  ungradeJokerUse,
   computeTotals,
   leaderboard,
   roundPointsSummary,

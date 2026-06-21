@@ -10,6 +10,7 @@ module.exports = function (router) {
     if (!requireUser(req, res)) return;
     const rows = logic.leaderboard();
     const jokerLog = logic.jokerUsageLog();
+    const isAdmin = !!(req.user && req.user.is_admin);
 
     const rowsHtml = rows
       .map((u, i) => {
@@ -31,6 +32,15 @@ module.exports = function (router) {
           <td class="px-3 py-2 font-bold text-rose-600">${escapeHtml(j.victimName)}</td>
           <td class="px-3 py-2 text-slate-500">${j.roundName ? escapeHtml(j.roundName) : '—'}</td>
           <td class="px-3 py-2 text-slate-400 text-xs">${fmtDateTime(j.used_at)}</td>
+          ${
+            isAdmin
+              ? `<td class="px-3 py-2 text-center">
+            <form method="post" action="/admin/jokers/${j.id}/ungrade" class="inline" data-confirm="تأكيد التراجع عن استخدام الجوكر من ${escapeHtml(j.attackerName)} على ${escapeHtml(j.victimName)}؟ بترجع ٥ نقاط لـ${escapeHtml(j.victimName)} وتنخصم ٥ نقاط من ${escapeHtml(j.attackerName)}، ويرجع الجوكر متاح يستخدمه ${escapeHtml(j.attackerName)} من جديد.">
+              <button class="text-[10px] bg-rose-100 hover:bg-rose-200 text-rose-700 rounded px-1.5 py-0.5">↩️ تراجع</button>
+            </form>
+          </td>`
+              : ''
+          }
         </tr>`
       )
       .join('');
@@ -50,9 +60,9 @@ module.exports = function (router) {
       <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
         <table class="w-full text-sm">
           <thead class="bg-slate-50 text-slate-500">
-            <tr><th class="px-3 py-2 text-right">منو استخدمه</th><th class="px-3 py-2 text-right">على منو</th><th class="px-3 py-2 text-right">الجولة</th><th class="px-3 py-2 text-right">الوقت</th></tr>
+            <tr><th class="px-3 py-2 text-right">منو استخدمه</th><th class="px-3 py-2 text-right">على منو</th><th class="px-3 py-2 text-right">الجولة</th><th class="px-3 py-2 text-right">الوقت</th>${isAdmin ? '<th class="px-3 py-2"></th>' : ''}</tr>
           </thead>
-          <tbody class="divide-y divide-slate-100">${jokerRowsHtml || `<tr><td colspan="4" class="px-3 py-6 text-center text-slate-400">ما فيه أي جوكر مستخدم لحد الحين</td></tr>`}</tbody>
+          <tbody class="divide-y divide-slate-100">${jokerRowsHtml || `<tr><td colspan="${isAdmin ? 5 : 4}" class="px-3 py-6 text-center text-slate-400">ما فيه أي جوكر مستخدم لحد الحين</td></tr>`}</tbody>
         </table>
       </div>
     `;
