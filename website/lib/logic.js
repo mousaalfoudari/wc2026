@@ -342,6 +342,63 @@ function getAvailableJokers(userId) {
     .all(userId);
 }
 
+// "Current round" for joker-victim protection purposes = whichever round
+// /predict would show by default (first open round with matches, else the
+// last round overall). This is the same notion participants already see as
+// "the open round" — reusing it means "this round" means the same thing here
+// as it does everywhere else in the app, with no separate concept to track.
+function currentOpenRoundId() {
+  const rounds = listRounds();
+  const open = rounds.filter((r) => !r.locked && r.matches.length > 0);
+  if (open.length) return open[0].id;
+  return rounds.length ? rounds[rounds.length - 1].id : null;
+}
+
+// A joker victim can only be hit once per round, regardless of who's doing
+// the hitting — Mousa confirmed this should reset every round rather than
+// being a lifetime block, so the same (or a different) player can target them
+// again once a new round opens.
+function jokerVictimLockedThisRound(targetUserId, roundId) {
+  if (roundId == null) return false;
+  return !!db
+    .prepare("SELECT 1 FROM jokers WHERE used_against_user_id = ? AND used_round_id = ? AND status = 'used'")
+    .get(targetUserId, roundId);
+}
+
+// Set of user ids already hit by a joker this round — used to hide already-
+// protected players from the target dropdown on /predict, so participants
+// don't even see them as an option (in addition to the server-side check in
+// useJoker, which is the actual enforcement and can't be bypassed).
+function jokerLockedTargetIdsThisRound() {
+  const roundId = currentOpenRoundId();
+  if (roundId == null) return new Set();
+  const rows = db
+    .prepare("SELECT used_against_user_id as id FROM jokers WHERE used_round_id = ? AND status = 'used'")
+    .all(roundId);
+  return new Set(rows.map((r) => r.id));
+}
+
+// Public joker-usage log — every participant can see who jokered whom and in
+// which round (Mousa wants this visible to everyone, not just admins, since
+// it's part of the fun/competitive banter). LEFT JOIN on rounds because
+// jokers used before used_round_id existed have it as NULL.
+function jokerUsageLog() {
+  return db
+    .prepare(
+      `SELECT j.used_at,
+              ua.name as attackerName,
+              uv.name as victimName,
+              r.name as roundName
+       FROM jokers j
+       JOIN users ua ON ua.id = j.user_id
+       JOIN users uv ON uv.id = j.used_against_user_id
+       LEFT JOIN rounds r ON r.id = j.used_round_id
+       WHERE j.status = 'used'
+       ORDER BY j.used_at DESC, j.id DESC`
+    )
+    .all();
+}
+
 function useJoker(jokerId, userId, targetUserId) {
   const joker = db.prepare('SELECT * FROM jokers WHERE id = ? AND user_id = ?').get(jokerId, userId);
   if (!joker || joker.status !== 'available') return { ok: false, error: 'الجوكر غير متاح.' };
@@ -353,6 +410,11 @@ function useJoker(jokerId, userId, targetUserId) {
   const totals = computeTotals();
   const targetTotal = totals[targetUserId] || 0;
   if (targetTotal < 5) return { ok: false, error: 'هذا اللاعب عنده أقل من ٥ نقاط، لا يمكن أخذ الجوكر منه.' };
+
+  const roundId = currentOpenRoundId();
+  if (jokerVictimLockedThisRound(targetUserId, roundId)) {
+    return { ok: false, error: 'هذا اللاعب أُخذ منه جوكر بالفعل هذي الجولة (من لاعب ثاني) — اختر شخص آخر، أو جرب معه بالجولة الجاية.' };
+  }
 
   db.prepare('INSERT INTO adjustments (user_id, round_id, delta, reason) VALUES (?, ?, ?, ?)').run(
     targetUserId,
@@ -366,8 +428,9 @@ function useJoker(jokerId, userId, targetUserId) {
     5,
     `استخدام الجوكر`
   );
-  db.prepare("UPDATE jokers SET status='used', used_against_user_id=?, used_at=? WHERE id=?").run(
+  db.prepare("UPDATE jokers SET status='used', used_against_user_id=?, used_round_id=?, used_at=? WHERE id=?").run(
     targetUserId,
+    roundId,
     nowIso(),
     jokerId
   );
@@ -613,6 +676,10 @@ module.exports = {
   gradeBonus,
   ungradeBonus,
   getAvailableJokers,
+  currentOpenRoundId,
+  jokerVictimLockedThisRound,
+  jokerLockedTargetIdsThisRound,
+  jokerUsageLog,
   useJoker,
   computeTotals,
   leaderboard,

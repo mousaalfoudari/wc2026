@@ -126,14 +126,19 @@ function bonusSection(round, user, answer) {
 
 function jokerBanner(jokers, currentUserId) {
   if (!jokers.length) return '';
+  // Players already hit by a joker this round are off-limits to everyone
+  // (including the same attacker) until the next round opens — see
+  // jokerVictimLockedThisRound in lib/logic.js. Hiding them here is just UX;
+  // the real enforcement is server-side in useJoker.
+  const lockedIds = logic.jokerLockedTargetIdsThisRound();
   const targets = logic
     .leaderboard()
-    .filter((u) => u.id !== currentUserId && u.total >= 5);
+    .filter((u) => u.id !== currentUserId && u.total >= 5 && !lockedIds.has(u.id));
 
   return jokers
     .map((j) => {
       if (!targets.length) {
-        return `<div class="bg-purple-50 border border-purple-200 rounded-xl p-4 mb-4 text-sm text-purple-700">🃏 عندك جوكر متاح! بس ما فيه حالياً لاعب عنده ٥ نقاط أو أكثر تاخذ منه.</div>`;
+        return `<div class="bg-purple-50 border border-purple-200 rounded-xl p-4 mb-4 text-sm text-purple-700">🃏 عندك جوكر متاح! بس ما فيه حالياً لاعب عنده ٥ نقاط أو أكثر تاخذ منه (أو كل من ينطبق عليه الشرط أُخذ منه جوكر بالفعل هذي الجولة).</div>`;
       }
       const opts = targets.map((t) => `<option value="${t.id}">${escapeHtml(t.name)} (${t.total} نقطة)</option>`).join('');
       return `<form method="post" action="/joker/${j.id}/use" class="bg-purple-50 border border-purple-200 rounded-xl p-4 mb-4">

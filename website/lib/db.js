@@ -121,4 +121,17 @@ CREATE TABLE IF NOT EXISTS team_rosters (
 );
 `);
 
+// Migration: tracks which round was "current" at the moment a joker was used
+// against someone, so a victim can only be hit once per round (see
+// jokerVictimLockedThisRound in lib/logic.js) — added after the jokers table
+// above, so existing live databases need this column added on top of their
+// current schema. SQLite has no "ADD COLUMN IF NOT EXISTS", so the try/catch
+// makes this safe to run every server start (fails harmlessly once the column
+// already exists).
+try {
+  db.exec('ALTER TABLE jokers ADD COLUMN used_round_id INTEGER REFERENCES rounds(id);');
+} catch (e) {
+  // column already exists — nothing to do.
+}
+
 module.exports = db;
