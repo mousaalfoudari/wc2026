@@ -97,9 +97,16 @@ function getRoundPick(userId, roundId) {
   return db.prepare('SELECT * FROM round_picks WHERE user_id = ? AND round_id = ?').get(userId, roundId);
 }
 
+// First match submitted with the double checkbox checked locks in the
+// round's double pick — once double_match_id is set, later attempts (e.g.
+// checking the box on a different match afterwards) are silently ignored
+// rather than moving it, so a participant can never end up confused about
+// which match is actually the double for the round (it's whichever one they
+// committed to first, permanently, for that round).
 function setDoublePick(userId, roundId, matchId) {
   const existing = getRoundPick(userId, roundId);
   if (existing) {
+    if (existing.double_match_id != null) return false;
     db.prepare('UPDATE round_picks SET double_match_id = ? WHERE id = ?').run(matchId, existing.id);
   } else {
     db.prepare('INSERT INTO round_picks (user_id, round_id, double_match_id) VALUES (?, ?, ?)').run(
@@ -108,6 +115,7 @@ function setDoublePick(userId, roundId, matchId) {
       matchId
     );
   }
+  return true;
 }
 
 function getBonusAnswer(userId, roundId) {

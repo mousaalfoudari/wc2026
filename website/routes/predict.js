@@ -85,10 +85,14 @@ function matchCard(match, prediction, eligibleDoubleIds, doublePickId, locked) {
     <div id="scorers-b-${id}" class="flex flex-wrap gap-2 justify-center mt-1"></div>
     ${
       eligibleDoubleIds.has(id)
-        ? `<label class="flex items-center justify-center gap-2 mt-3 p-2 rounded-lg border border-amber-200 bg-amber-50 text-sm text-amber-800 cursor-pointer">
-            <input type="checkbox" name="set_double_${id}" value="1" ${doublePickId === id ? 'checked' : ''} />
-            ⭐ اعتبرها مباراة الدبل (نقاطها تتضاعف) — مباراة واحدة فقط بكل الجولة
-          </label>`
+        ? doublePickId == null
+          ? `<label class="flex items-center justify-center gap-2 mt-3 p-2 rounded-lg border border-amber-200 bg-amber-50 text-sm text-amber-800 cursor-pointer">
+              <input type="checkbox" name="set_double_${id}" value="1" />
+              ⭐ اعتبرها مباراة الدبل (نقاطها تتضاعف) — مباراة واحدة فقط بكل الجولة
+            </label>`
+          : `<div class="flex items-center justify-center gap-2 mt-3 p-2 rounded-lg border border-slate-200 bg-slate-50 text-sm text-slate-400">
+              🔒 مباراة الدبل لهذي الجولة محددة بالفعل على مباراة ثانية (أول مباراة ترسل توقعها وتحدد عليها الخيار هي اللي تثبت)
+            </div>`
         : ''
     }
     <button class="w-full mt-3 bg-emerald-600 text-white rounded-lg py-2 font-bold hover:bg-emerald-700">إرسال التوقع (لا يمكن تعديله بعد الإرسال)</button>
