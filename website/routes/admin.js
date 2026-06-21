@@ -252,7 +252,32 @@ function roundManage(round) {
   `;
 }
 
-function roundPredictions(round, data) {
+function roundPredictions(round, data, bonusAnswers) {
+  const bonusSection = round.bonus_question
+    ? `<div class="bg-white border border-slate-200 rounded-xl p-3 mb-4">
+        <div class="font-bold mb-1">🎯 سؤال البونص: ${escapeHtml(round.bonus_question)}</div>
+        ${
+          bonusAnswers && bonusAnswers.length
+            ? `<div class="space-y-1 mt-2">${bonusAnswers
+                .map((a) => {
+                  const choice = round.bonus_options[a.choice_index];
+                  const pts =
+                    a.points != null
+                      ? `<span class="font-bold ${a.points > 0 ? 'text-emerald-600' : 'text-slate-500'}">${a.points} نقطة</span>`
+                      : '<span class="text-slate-400">بدون تصحيح بعد</span>';
+                  return `<div class="flex items-center justify-between gap-2 text-sm border-t border-slate-100 pt-1">
+                    <span><span class="font-bold">${escapeHtml(a.user_name)}:</span> ${escapeHtml(choice || '')} <span class="mx-1">| ${pts}</span></span>
+                    <form method="post" action="/admin/rounds/${round.id}/bonus/answers/${a.user_id}/delete" data-confirm="تأكيد حذف إجابة ${escapeHtml(a.user_name)} على سؤال البونص؟ يقدر يرسل إجابة جديدة بنفسه بعدها لو الجولة لسا مفتوحة.">
+                      <button class="text-[10px] bg-rose-100 hover:bg-rose-200 text-rose-700 rounded px-1.5 py-0.5">🗑️ حذف الإجابة</button>
+                    </form>
+                  </div>`;
+                })
+                .join('')}</div>`
+            : '<div class="text-center text-slate-400 text-sm py-2">لا توجد إجابات بعد</div>'
+        }
+      </div>`
+    : '';
+
   const sections = data
     .map(({ match, predictions, missing }) => {
       const names = predictions
@@ -316,6 +341,7 @@ function roundPredictions(round, data) {
   return `
     <a href="/admin/rounds/${round.id}" class="text-sm text-slate-500">← رجوع لإدارة الجولة</a>
     <h1 class="text-xl font-bold mt-1 mb-4">كل التوقعات — ${escapeHtml(round.name)}</h1>
+    ${bonusSection}
     ${sections || `<div class="text-slate-400 text-sm py-8 text-center">لا توجد مباريات بهذي الجولة</div>`}
   `;
 }
@@ -483,7 +509,18 @@ module.exports = function (router) {
     const round = logic.getRound(Number(req.params.id));
     if (!round) return redirect(res, '/admin', 'الجولة غير موجودة.', 'error');
     const data = logic.getRoundPredictionsByMatch(round.id);
-    sendHtml(res, layout({ title: 'كل التوقعات', user: req.user, active: 'admin', body: roundPredictions(round, data) }));
+    const bonusAnswers = logic.getBonusAnswersForRound(round.id);
+    sendHtml(
+      res,
+      layout({
+        title: 'كل التوقعات',
+        user: req.user,
+        active: 'admin',
+        msg: req.flashMsg,
+        msgType: req.flashType,
+        body: roundPredictions(round, data, bonusAnswers),
+      })
+    );
   });
 
   router.post('/admin/rounds/:id/matches', async (req, res) => {
@@ -645,5 +682,15 @@ module.exports = function (router) {
     const backTo = result.roundId ? `/admin/rounds/${result.roundId}/predictions` : '/admin';
     if (!result.ok) return redirect(res, backTo, result.error, 'error');
     redirect(res, backTo, `تم حذف توقع ${result.userName} ✅`);
+  });
+
+  router.post('/admin/rounds/:roundId/bonus/answers/:userId/delete', async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const roundId = Number(req.params.roundId);
+    const userId = Number(req.params.userId);
+    const backTo = `/admin/rounds/${roundId}/predictions`;
+    const result = logic.deleteBonusAnswer(userId, roundId);
+    if (!result.ok) return redirect(res, backTo, result.error, 'error');
+    redirect(res, backTo, `تم حذف إجابة ${result.userName} على سؤال البونص ✅ يقدر يرسل إجابة جديدة لو الجولة لسا مفتوحة.`);
   });
 };

@@ -86,7 +86,7 @@ function matchCard(match, prediction, eligibleDoubleIds, doublePickId, locked) {
     ${
       eligibleDoubleIds.has(id)
         ? `<label class="flex items-center justify-center gap-2 mt-3 p-2 rounded-lg border border-amber-200 bg-amber-50 text-sm text-amber-800 cursor-pointer">
-            <input type="checkbox" name="set_double" value="1" ${doublePickId === id ? 'checked' : ''} />
+            <input type="checkbox" name="set_double_${id}" value="1" ${doublePickId === id ? 'checked' : ''} />
             ⭐ اعتبرها مباراة الدبل (نقاطها تتضاعف) — مباراة واحدة فقط بكل الجولة
           </label>`
         : ''
@@ -227,7 +227,7 @@ module.exports = function (router) {
 
     logic.submitPrediction(req.user.id, matchId, scoreA, scoreB, scorersA, scorersB);
 
-    if (req.body.set_double === '1') {
+    if (req.body[`set_double_${matchId}`] === '1') {
       const eligible = logic.doubleEligibleMatchIds(round.id);
       if (eligible.has(matchId)) logic.setDoublePick(req.user.id, round.id, matchId);
     }

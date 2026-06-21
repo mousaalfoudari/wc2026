@@ -125,6 +125,34 @@ function submitBonusAnswer(userId, roundId, choiceIndex) {
   return true;
 }
 
+// Every participant's bonus-question answer for a round, for the admin's
+// "كل التوقعات" page — lets the admin see who answered what and delete a
+// specific answer (see deleteBonusAnswer) if a participant needs to redo it.
+function getBonusAnswersForRound(roundId) {
+  return db
+    .prepare(
+      `SELECT ba.*, u.name as user_name FROM bonus_answers ba
+       JOIN users u ON u.id = ba.user_id
+       WHERE ba.round_id = ? ORDER BY u.name COLLATE NOCASE ASC`
+    )
+    .all(roundId);
+}
+
+// Admin override to remove a participant's bonus-question answer (distinct
+// from ungradeBonus, which only resets points/bonus_graded and leaves the
+// answer in place). Deleting the row frees submitBonusAnswer's "already
+// answered" check, so the participant can submit a fresh answer themselves
+// from /predict — this is how the admin lets someone redo their answer.
+function deleteBonusAnswer(userId, roundId) {
+  const existing = getBonusAnswer(userId, roundId);
+  if (!existing) return { ok: false, error: 'هذا المشترك ما عنده إجابة على سؤال البونص بهذي الجولة.' };
+
+  const user = db.prepare('SELECT name FROM users WHERE id = ?').get(userId);
+  db.prepare('DELETE FROM bonus_answers WHERE id = ?').run(existing.id);
+
+  return { ok: true, roundId, userName: user ? user.name : '' };
+}
+
 // Full per-match prediction breakdown for the admin: every user's predicted
 // score/scorers for each match in the round, plus the names of users who
 // haven't predicted that match yet. Visible regardless of lock status.
@@ -505,6 +533,8 @@ module.exports = {
   setDoublePick,
   getBonusAnswer,
   submitBonusAnswer,
+  getBonusAnswersForRound,
+  deleteBonusAnswer,
   gradeMatch,
   ungradeMatch,
   gradeBonus,
