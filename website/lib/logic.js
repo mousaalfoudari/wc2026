@@ -1,6 +1,6 @@
 'use strict';
 const db = require('./db');
-const { dayKey, safeJsonParse, nowIso } = require('./util');
+const { safeJsonParse, nowIso } = require('./util');
 const { gradePrediction, scorerMatchFlags } = require('./scoring');
 
 // ---------- Rounds & matches ----------
@@ -57,19 +57,13 @@ function addMatch(roundId, teamA, teamB, kickoffAt) {
 }
 
 // Returns set of match ids within `roundId` that are eligible for the "double"
-// pick: the calendar day (kickoff date) they fall on must contain >= 2 matches.
+// pick: any match in the round, as long as the round has 2+ matches total.
+// (Previously restricted to same calendar day, but matches just after
+// midnight were getting counted as the next day, splitting rounds unfairly.)
 function doubleEligibleMatchIds(roundId) {
   const matches = listMatchesForRound(roundId);
-  const byDay = new Map();
-  for (const m of matches) {
-    const k = dayKey(m.kickoff_at);
-    if (!byDay.has(k)) byDay.set(k, []);
-    byDay.get(k).push(m.id);
-  }
   const eligible = new Set();
-  for (const ids of byDay.values()) {
-    if (ids.length >= 2) ids.forEach((id) => eligible.add(id));
-  }
+  if (matches.length >= 2) matches.forEach((m) => eligible.add(m.id));
   return eligible;
 }
 
@@ -402,6 +396,37 @@ function processRoundLocks() {
   }
 }
 
+// ---------- Team rosters (scorer dropdown) ----------
+
+// Every distinct team name seen across the schedule, alphabetically sorted —
+// used by the admin rosters page so the admin can see/curate every team,
+// not just ones they've already added a roster for.
+function listTeamNames() {
+  const rows = db.prepare('SELECT team_a AS name FROM matches UNION SELECT team_b AS name FROM matches').all();
+  return rows.map((r) => r.name).sort((a, b) => a.localeCompare(b, 'ar'));
+}
+
+function getRoster(teamName) {
+  const row = db.prepare('SELECT players FROM team_rosters WHERE team_name = ?').get(teamName);
+  return row ? safeJsonParse(row.players, []) : [];
+}
+
+// teamName -> players[] for every team that currently has a roster saved.
+function listRosters() {
+  const rows = db.prepare('SELECT team_name, players FROM team_rosters').all();
+  const map = {};
+  for (const r of rows) map[r.team_name] = safeJsonParse(r.players, []);
+  return map;
+}
+
+function setRoster(teamName, players) {
+  const json = JSON.stringify(players);
+  db.prepare(
+    `INSERT INTO team_rosters (team_name, players, updated_at) VALUES (?, ?, datetime('now'))
+     ON CONFLICT(team_name) DO UPDATE SET players = excluded.players, updated_at = excluded.updated_at`
+  ).run(teamName, json);
+}
+
 module.exports = {
   listRounds,
   getRound,
@@ -429,4 +454,8 @@ module.exports = {
   manualPointsByUser,
   creditManualScorer,
   processRoundLocks,
+  listTeamNames,
+  getRoster,
+  listRosters,
+  setRoster,
 };

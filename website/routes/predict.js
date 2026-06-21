@@ -70,13 +70,15 @@ function matchCard(match, prediction, eligibleDoubleIds, doublePickId, locked) {
     </div>`;
   }
 
+  const rosterA = logic.getRoster(match.team_a);
+  const rosterB = logic.getRoster(match.team_b);
   return `<form method="post" action="/predict/match/${id}" class="bg-white border border-slate-200 rounded-xl p-4 mb-3">
     ${teamRow}
     <div class="flex items-center justify-center gap-3">
       <span class="font-bold">${escapeHtml(match.team_a)}</span>
-      <input type="number" min="0" max="20" name="score_a" required class="score-input w-16 text-center border border-slate-300 rounded-lg py-1.5" data-target="scorers-a-${id}" data-team="${escapeHtml(match.team_a)}" data-field="scorers_a_${id}" />
+      <input type="number" min="0" max="20" name="score_a" required class="score-input w-16 text-center border border-slate-300 rounded-lg py-1.5" data-target="scorers-a-${id}" data-team="${escapeHtml(match.team_a)}" data-field="scorers_a_${id}" data-players="${escapeHtml(JSON.stringify(rosterA))}" />
       <span class="text-slate-400">-</span>
-      <input type="number" min="0" max="20" name="score_b" required class="score-input w-16 text-center border border-slate-300 rounded-lg py-1.5" data-target="scorers-b-${id}" data-team="${escapeHtml(match.team_b)}" data-field="scorers_b_${id}" />
+      <input type="number" min="0" max="20" name="score_b" required class="score-input w-16 text-center border border-slate-300 rounded-lg py-1.5" data-target="scorers-b-${id}" data-team="${escapeHtml(match.team_b)}" data-field="scorers_b_${id}" data-players="${escapeHtml(JSON.stringify(rosterB))}" />
       <span class="font-bold">${escapeHtml(match.team_b)}</span>
     </div>
     <div id="scorers-a-${id}" class="flex flex-wrap gap-2 justify-center mt-3"></div>
@@ -152,7 +154,7 @@ function doublePicker(round, eligibleIds, currentPickId) {
     )
     .join('');
   return `<form method="post" action="/predict/round/${round.id}/double" class="bg-white border border-amber-200 rounded-xl p-4 mb-4">
-    <div class="font-bold text-amber-700 mb-2">⭐ ميزة الدبل: اختر مباراة اليوم تتضاعف نقاطها</div>
+    <div class="font-bold text-amber-700 mb-2">⭐ ميزة الدبل: اختر مباراة من الجولة تتضاعف نقاطها</div>
     <div class="flex gap-2">
       <select name="match_id" class="flex-1 border border-slate-300 rounded-lg px-2 py-1.5 text-sm">${opts}</select>
       <button class="bg-amber-500 text-white rounded-lg px-4 py-1.5 text-sm font-bold hover:bg-amber-600">حفظ</button>

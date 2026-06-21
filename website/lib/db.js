@@ -109,6 +109,16 @@ CREATE TABLE IF NOT EXISTS adjustments (
   reason TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- Per-team list of player names the admin curates, so participants pick a
+-- scorer from a dropdown instead of typing a free-text name. Keyed by the
+-- exact team name string used in matches.team_a/team_b.
+CREATE TABLE IF NOT EXISTS team_rosters (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  team_name TEXT NOT NULL UNIQUE,
+  players TEXT NOT NULL DEFAULT '[]',
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 `);
 
 module.exports = db;

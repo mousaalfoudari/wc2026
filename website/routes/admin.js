@@ -109,7 +109,10 @@ function dashboard() {
     </div>
     <div class="flex items-center justify-between mb-2">
       <h2 class="font-bold">الجولات</h2>
-      <a href="/admin/users" class="text-sm text-emerald-700 font-medium">إدارة المشتركين →</a>
+      <div class="flex gap-3">
+        <a href="/admin/rosters" class="text-sm text-emerald-700 font-medium">قوائم اللاعبين →</a>
+        <a href="/admin/users" class="text-sm text-emerald-700 font-medium">إدارة المشتركين →</a>
+      </div>
     </div>
     <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
       <table class="w-full text-sm">
@@ -164,15 +167,17 @@ function matchRow(m) {
 
   const idA = `res-scorers-a-${m.id}`;
   const idB = `res-scorers-b-${m.id}`;
+  const rosterA = logic.getRoster(m.team_a);
+  const rosterB = logic.getRoster(m.team_b);
   return `<form method="post" action="/admin/matches/${m.id}/result" class="bg-white border border-amber-200 rounded-xl p-3 mb-2">
     <div class="flex items-center justify-between text-xs text-slate-400 mb-2">
       <span>${fmtDateTime(m.kickoff_at)}</span>
     </div>
     <div class="flex items-center justify-center gap-3">
       <span class="font-bold">${escapeHtml(m.team_a)}</span>
-      <input type="number" min="0" max="20" name="final_score_a" required class="score-input w-16 text-center border border-slate-300 rounded-lg py-1" data-target="${idA}" data-field="final_scorers_a_${m.id}" />
+      <input type="number" min="0" max="20" name="final_score_a" required class="score-input w-16 text-center border border-slate-300 rounded-lg py-1" data-target="${idA}" data-field="final_scorers_a_${m.id}" data-team="${escapeHtml(m.team_a)}" data-players="${escapeHtml(JSON.stringify(rosterA))}" />
       <span class="text-slate-400">-</span>
-      <input type="number" min="0" max="20" name="final_score_b" required class="score-input w-16 text-center border border-slate-300 rounded-lg py-1" data-target="${idB}" data-field="final_scorers_b_${m.id}" />
+      <input type="number" min="0" max="20" name="final_score_b" required class="score-input w-16 text-center border border-slate-300 rounded-lg py-1" data-target="${idB}" data-field="final_scorers_b_${m.id}" data-team="${escapeHtml(m.team_b)}" data-players="${escapeHtml(JSON.stringify(rosterB))}" />
       <span class="font-bold">${escapeHtml(m.team_b)}</span>
     </div>
     ${scorerInputsBlock(idA, idB, m.team_a, m.team_b)}
@@ -384,6 +389,39 @@ function usersPage() {
   `;
 }
 
+function rostersPage() {
+  const teamNames = logic.listTeamNames();
+  const rosters = logic.listRosters();
+  const doneCount = teamNames.filter((t) => (rosters[t] || []).length > 0).length;
+
+  const cards = teamNames
+    .map((team) => {
+      const players = rosters[team] || [];
+      const status = players.length
+        ? `<span class="text-emerald-600">✅ ${players.length} لاعب</span>`
+        : `<span class="text-slate-400">بلا قائمة — يتوقعون بكتابة الاسم</span>`;
+      return `<div class="bg-white border border-slate-200 rounded-xl p-4 mb-3">
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="font-bold text-sm">${escapeHtml(team)}</h3>
+          <span class="text-xs">${status}</span>
+        </div>
+        <form method="post" action="/admin/rosters" class="space-y-2">
+          <input type="hidden" name="team_name" value="${escapeHtml(team)}" />
+          <textarea name="players" rows="4" placeholder="كل لاعب بسطر مستقل" class="w-full border border-slate-300 rounded-lg px-2 py-1.5 text-sm">${escapeHtml(players.join('\n'))}</textarea>
+          <button class="bg-emerald-600 text-white rounded-lg px-3 py-1.5 text-sm font-bold hover:bg-emerald-700">حفظ القائمة</button>
+        </form>
+      </div>`;
+    })
+    .join('');
+
+  return `
+    <a href="/admin" class="text-sm text-slate-500">← رجوع للوحة التحكم</a>
+    <h1 class="text-xl font-bold mt-1 mb-1">قوائم لاعبي الفرق</h1>
+    <p class="text-sm text-slate-500 mb-4">${doneCount} من ${teamNames.length} فريق عنده قائمة. أي فريق عنده قائمة، المشتركين يختارون الهداف من قائمة منسدلة بدل كتابة الاسم (وكذا أنت لما تدخل النتيجة الرسمية) — يضمن مطابقة دقيقة بدون أي اختلاف بالكتابة. الفرق اللي بلا قائمة تفضل تعمل بالكتابة الحرة كالسابق.</p>
+    ${cards || `<div class="text-slate-400 text-sm py-8 text-center">لا توجد فرق بالجدول بعد</div>`}
+  `;
+}
+
 module.exports = function (router) {
   router.get('/admin', async (req, res) => {
     if (!requireAdmin(req, res)) return;
@@ -498,6 +536,23 @@ module.exports = function (router) {
   router.get('/admin/users', async (req, res) => {
     if (!requireAdmin(req, res)) return;
     sendHtml(res, layout({ title: 'المشتركين', user: req.user, active: 'admin', msg: req.flashMsg, msgType: req.flashType, body: usersPage() }));
+  });
+
+  router.get('/admin/rosters', async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    sendHtml(res, layout({ title: 'قوائم اللاعبين', user: req.user, active: 'admin', msg: req.flashMsg, msgType: req.flashType, body: rostersPage() }));
+  });
+
+  router.post('/admin/rosters', async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const teamName = String(req.body.team_name || '').trim();
+    if (!teamName) return redirect(res, '/admin/rosters', 'اسم الفريق ناقص.', 'error');
+    const players = String(req.body.players || '')
+      .split('\n')
+      .map((p) => p.trim())
+      .filter(Boolean);
+    logic.setRoster(teamName, players);
+    redirect(res, '/admin/rosters', `تم حفظ قائمة ${teamName} ✅`);
   });
 
   router.post('/admin/users/:id/status', async (req, res) => {
