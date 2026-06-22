@@ -149,4 +149,14 @@ try {
   // column already exists — nothing to do.
 }
 
+// Migration: filename of an admin-uploaded "predicted lineup" image for this
+// match (e.g. "match-42.jpg"), stored on disk under data/uploads/lineups/ —
+// see setMatchLineupImage/clearMatchLineupImage in lib/logic.js and the
+// upload UI in routes/admin.js. NULL means no lineup image has been set.
+try {
+  db.exec('ALTER TABLE matches ADD COLUMN lineup_image TEXT;');
+} catch (e) {
+  // column already exists — nothing to do.
+}
+
 module.exports = db;

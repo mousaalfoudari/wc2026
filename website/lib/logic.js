@@ -56,6 +56,19 @@ function addMatch(roundId, teamA, teamB, kickoffAt) {
   return r.lastInsertRowid;
 }
 
+// Admin-uploaded "predicted lineup" image for a match — see routes/admin.js
+// (POST /admin/matches/:id/lineup) for the upload handler that writes the
+// file to disk under data/uploads/lineups/ and calls this to record the
+// filename, and routes/predict.js (matchCard) for where it's shown to
+// participants.
+function setMatchLineupImage(matchId, filename) {
+  db.prepare('UPDATE matches SET lineup_image = ? WHERE id = ?').run(filename, matchId);
+}
+
+function clearMatchLineupImage(matchId) {
+  db.prepare('UPDATE matches SET lineup_image = NULL WHERE id = ?').run(matchId);
+}
+
 // Returns set of match ids within `roundId` that are eligible for the "double"
 // pick: any match in the round, as long as the round has 2+ matches total.
 // (Previously restricted to same calendar day, but matches just after
@@ -729,6 +742,8 @@ module.exports = {
   createRound,
   updateRoundBonus,
   addMatch,
+  setMatchLineupImage,
+  clearMatchLineupImage,
   doubleEligibleMatchIds,
   getUserPrediction,
   getUserPredictionsForRound,

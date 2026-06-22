@@ -1,11 +1,59 @@
 'use strict';
+const fs = require('fs');
+const path = require('path');
 const { layout, redirect, escapeHtml, lockCountdownHtml } = require('../lib/render');
-const { sendHtml } = require('../lib/http');
-const { requireAdmin } = require('../lib/guard');
+const { sendHtml, sendText } = require('../lib/http');
+const { requireAdmin, requireUser } = require('../lib/guard');
 const { toArray, fmtDateTime, safeJsonParse } = require('../lib/util');
 const logic = require('../lib/logic');
 const users = require('../lib/users');
 const { syncLiveResults, FEED_URL } = require('../lib/livesync');
+
+// Admin-uploaded "predicted lineup" images live under data/ (not public/) so
+// they survive a redeploy — public/ is rebuilt fresh from the git repo every
+// deploy, but data/ holds the persistent SQLite DB and is the one directory
+// confirmed to survive across this app's actual Render redeploys. Override-
+// able via env var (mirrors DB_PATH in lib/db.js) so local/throwaway test
+// runs never write into the real project's data/ folder.
+const LINEUP_DIR = process.env.LINEUP_DIR || path.join(__dirname, '..', 'data', 'uploads', 'lineups');
+
+function ensureLineupDir() {
+  fs.mkdirSync(LINEUP_DIR, { recursive: true });
+}
+
+// Sniffs the first few bytes of the uploaded file to confirm it's actually
+// one of the image types we accept, regardless of what the browser claimed
+// in Content-Type or the original filename's extension — cheap defense
+// against a mislabeled or malicious upload.
+function sniffImageExt(buf) {
+  if (!buf || buf.length < 4) return null;
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return '.jpg';
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return '.png';
+  if (buf.length >= 6 && buf.slice(0, 3).toString('ascii') === 'GIF') return '.gif';
+  if (buf.length >= 12 && buf.slice(0, 4).toString('ascii') === 'RIFF' && buf.slice(8, 12).toString('ascii') === 'WEBP') return '.webp';
+  return null;
+}
+
+function removeExistingLineupFiles(matchId) {
+  if (!fs.existsSync(LINEUP_DIR)) return;
+  for (const f of fs.readdirSync(LINEUP_DIR)) {
+    if (f.startsWith(`match-${matchId}.`)) {
+      try {
+        fs.unlinkSync(path.join(LINEUP_DIR, f));
+      } catch (e) {
+        // best-effort cleanup — a leftover orphaned file isn't harmful.
+      }
+    }
+  }
+}
+
+const LINEUP_SERVE_MIME = {
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+};
 
 function shell(title, body, active) {
   return { title, body, active };
@@ -227,21 +275,49 @@ function scorerInputsBlock(idA, idB, teamA, teamB) {
   </div>`;
 }
 
+// Lets the admin attach/replace/remove an image of the expected lineup for
+// a specific match — shown to participants on /predict to help them decide
+// their prediction (see matchCard in routes/predict.js). One image per
+// match; uploading a new one replaces the old file on disk.
+function lineupAdminBlock(m) {
+  const hasImage = !!m.lineup_image;
+  return `<div class="border border-slate-200 rounded-lg p-2 mt-2 bg-slate-50">
+    <div class="flex items-center justify-between mb-1">
+      <span class="text-[11px] font-bold text-slate-500">📋 التشكيلة المتوقعة (صورة، اختياري)</span>
+      ${
+        hasImage
+          ? `<form method="post" action="/admin/matches/${m.id}/lineup/delete" class="inline" data-confirm="تأكيد حذف صورة التشكيلة المتوقعة لمباراة ${escapeHtml(m.team_a)} × ${escapeHtml(m.team_b)}؟">
+              <button class="text-[10px] bg-rose-100 hover:bg-rose-200 text-rose-700 rounded px-1.5 py-0.5">🗑️ حذف الصورة</button>
+            </form>`
+          : ''
+      }
+    </div>
+    ${hasImage ? `<img src="/lineups/${escapeHtml(m.lineup_image)}" class="max-h-32 rounded-lg mb-2" />` : ''}
+    <form method="post" action="/admin/matches/${m.id}/lineup" enctype="multipart/form-data" class="flex items-center gap-2">
+      <input type="file" name="lineup_image" accept="image/*" required class="text-xs flex-1" />
+      <button class="text-xs bg-slate-600 text-white rounded-lg px-2 py-1 font-bold hover:bg-slate-700 whitespace-nowrap">${hasImage ? 'استبدال' : 'رفع'}</button>
+    </form>
+  </div>`;
+}
+
 function matchRow(m) {
   if (m.graded) {
     const sa = safeJsonParse(m.final_scorers_a, []);
     const sb = safeJsonParse(m.final_scorers_b, []);
-    return `<div class="bg-white border border-slate-200 rounded-xl p-3 mb-2 flex items-center justify-between">
-      <div>
-        <div class="font-bold">${escapeHtml(m.team_a)} ${m.final_score_a} - ${m.final_score_b} ${escapeHtml(m.team_b)}</div>
-        <div class="text-xs text-slate-400">${fmtDateTime(m.kickoff_at)} ${sa.length || sb.length ? '| هدافين: ' + [...sa, ...sb].map(escapeHtml).join('، ') : ''}</div>
+    return `<div class="bg-white border border-slate-200 rounded-xl p-3 mb-2">
+      <div class="flex items-center justify-between">
+        <div>
+          <div class="font-bold">${escapeHtml(m.team_a)} ${m.final_score_a} - ${m.final_score_b} ${escapeHtml(m.team_b)}</div>
+          <div class="text-xs text-slate-400">${fmtDateTime(m.kickoff_at)} ${sa.length || sb.length ? '| هدافين: ' + [...sa, ...sb].map(escapeHtml).join('، ') : ''}</div>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="text-emerald-600 text-sm font-medium">✅ تمت إضافة النتيجة</span>
+          <form method="post" action="/admin/matches/${m.id}/ungrade" class="inline" data-confirm="تأكيد التراجع عن نتيجة ${escapeHtml(m.team_a)} × ${escapeHtml(m.team_b)}؟ بترجع المباراة بدون نتيجة وتنحذف كل النقاط المحسوبة عليها (تقدر تدخل النتيجة الصحيحة بعدين من جديد).">
+            <button class="text-[10px] bg-rose-100 hover:bg-rose-200 text-rose-700 rounded px-1.5 py-0.5">↩️ تراجع عن النتيجة</button>
+          </form>
+        </div>
       </div>
-      <div class="flex items-center gap-2">
-        <span class="text-emerald-600 text-sm font-medium">✅ تمت إضافة النتيجة</span>
-        <form method="post" action="/admin/matches/${m.id}/ungrade" class="inline" data-confirm="تأكيد التراجع عن نتيجة ${escapeHtml(m.team_a)} × ${escapeHtml(m.team_b)}؟ بترجع المباراة بدون نتيجة وتنحذف كل النقاط المحسوبة عليها (تقدر تدخل النتيجة الصحيحة بعدين من جديد).">
-          <button class="text-[10px] bg-rose-100 hover:bg-rose-200 text-rose-700 rounded px-1.5 py-0.5">↩️ تراجع عن النتيجة</button>
-        </form>
-      </div>
+      ${lineupAdminBlock(m)}
     </div>`;
   }
 
@@ -249,20 +325,23 @@ function matchRow(m) {
   const idB = `res-scorers-b-${m.id}`;
   const rosterA = logic.getRoster(m.team_a);
   const rosterB = logic.getRoster(m.team_b);
-  return `<form method="post" action="/admin/matches/${m.id}/result" class="bg-white border border-amber-200 rounded-xl p-3 mb-2">
-    <div class="flex items-center justify-between text-xs text-slate-400 mb-2">
-      <span>${fmtDateTime(m.kickoff_at)}</span>
-    </div>
-    <div class="flex items-center justify-center gap-3">
-      <span class="font-bold">${escapeHtml(m.team_a)}</span>
-      <input type="number" min="0" max="20" name="final_score_a" required class="score-input w-16 text-center border border-slate-300 rounded-lg py-1" data-target="${idA}" data-field="final_scorers_a_${m.id}" data-team="${escapeHtml(m.team_a)}" data-players="${escapeHtml(JSON.stringify(rosterA))}" />
-      <span class="text-slate-400">-</span>
-      <input type="number" min="0" max="20" name="final_score_b" required class="score-input w-16 text-center border border-slate-300 rounded-lg py-1" data-target="${idB}" data-field="final_scorers_b_${m.id}" data-team="${escapeHtml(m.team_b)}" data-players="${escapeHtml(JSON.stringify(rosterB))}" />
-      <span class="font-bold">${escapeHtml(m.team_b)}</span>
-    </div>
-    ${scorerInputsBlock(idA, idB, m.team_a, m.team_b)}
-    <button class="w-full mt-2 bg-amber-600 text-white rounded-lg py-1.5 text-sm font-bold hover:bg-amber-700">حفظ النتيجة وحساب النقاط</button>
-  </form>`;
+  return `<div class="bg-white border border-amber-200 rounded-xl p-3 mb-2">
+    <form method="post" action="/admin/matches/${m.id}/result">
+      <div class="flex items-center justify-between text-xs text-slate-400 mb-2">
+        <span>${fmtDateTime(m.kickoff_at)}</span>
+      </div>
+      <div class="flex items-center justify-center gap-3">
+        <span class="font-bold">${escapeHtml(m.team_a)}</span>
+        <input type="number" min="0" max="20" name="final_score_a" required class="score-input w-16 text-center border border-slate-300 rounded-lg py-1" data-target="${idA}" data-field="final_scorers_a_${m.id}" data-team="${escapeHtml(m.team_a)}" data-players="${escapeHtml(JSON.stringify(rosterA))}" />
+        <span class="text-slate-400">-</span>
+        <input type="number" min="0" max="20" name="final_score_b" required class="score-input w-16 text-center border border-slate-300 rounded-lg py-1" data-target="${idB}" data-field="final_scorers_b_${m.id}" data-team="${escapeHtml(m.team_b)}" data-players="${escapeHtml(JSON.stringify(rosterB))}" />
+        <span class="font-bold">${escapeHtml(m.team_b)}</span>
+      </div>
+      ${scorerInputsBlock(idA, idB, m.team_a, m.team_b)}
+      <button class="w-full mt-2 bg-amber-600 text-white rounded-lg py-1.5 text-sm font-bold hover:bg-amber-700">حفظ النتيجة وحساب النقاط</button>
+    </form>
+    ${lineupAdminBlock(m)}
+  </div>`;
 }
 
 function roundManage(round) {
@@ -681,6 +760,70 @@ module.exports = function (router) {
       return redirect(res, backTo, 'تم التراجع عن النتيجة، لكن فيه جوكر مأخوذ من هذي المباراة استُخدم بالفعل — تأكد منه يدوياً.', 'error');
     }
     redirect(res, backTo, 'تم التراجع عن النتيجة ✅ — المباراة رجعت بدون نتيجة.');
+  });
+
+  // Admin uploads (or replaces) the "predicted lineup" image for a match —
+  // see lineupAdminBlock() above and matchCard() in routes/predict.js for
+  // where participants see it. Multipart parsing happens centrally in
+  // server.js; req.files.lineup_image.data is the raw image Buffer here.
+  router.post('/admin/matches/:id/lineup', async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const matchId = Number(req.params.id);
+    const match = logic.getMatch(matchId);
+    if (!match) return redirect(res, '/admin', 'المباراة غير موجودة.', 'error');
+
+    const file = req.files && req.files.lineup_image;
+    if (!file || !file.data || !file.data.length) {
+      return redirect(res, `/admin/rounds/${match.round_id}`, 'اختر صورة للرفع.', 'error');
+    }
+
+    const ext = sniffImageExt(file.data);
+    if (!ext) {
+      return redirect(res, `/admin/rounds/${match.round_id}`, 'الملف المرفوع لازم يكون صورة (jpg / png / webp / gif).', 'error');
+    }
+
+    ensureLineupDir();
+    removeExistingLineupFiles(matchId);
+    const filename = `match-${matchId}${ext}`;
+    fs.writeFileSync(path.join(LINEUP_DIR, filename), file.data);
+    logic.setMatchLineupImage(matchId, filename);
+
+    redirect(res, `/admin/rounds/${match.round_id}`, 'تم رفع صورة التشكيلة المتوقعة ✅');
+  });
+
+  router.post('/admin/matches/:id/lineup/delete', async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const matchId = Number(req.params.id);
+    const match = logic.getMatch(matchId);
+    if (!match) return redirect(res, '/admin', 'المباراة غير موجودة.', 'error');
+
+    removeExistingLineupFiles(matchId);
+    logic.clearMatchLineupImage(matchId);
+    redirect(res, `/admin/rounds/${match.round_id}`, 'تم حذف صورة التشكيلة المتوقعة ✅');
+  });
+
+  // Serves an uploaded lineup image to any logged-in participant (gated like
+  // the rest of the app — requireUser, not requireAdmin). Lives under data/
+  // rather than public/, so it can't go through the existing serveStatic()
+  // helper in lib/http.js (which only serves public/) — hence this dedicated
+  // route, with the filename pattern strictly whitelisted to block any path
+  // traversal via the :filename param.
+  router.get('/lineups/:filename', async (req, res) => {
+    if (!requireUser(req, res)) return;
+    const name = String(req.params.filename || '');
+    if (!/^match-\d+\.(jpg|jpeg|png|webp|gif)$/i.test(name)) {
+      return sendText(res, 'غير موجود', 404);
+    }
+    const full = path.join(LINEUP_DIR, name);
+    if (!fs.existsSync(full)) return sendText(res, 'غير موجود', 404);
+    const ext = path.extname(name).toLowerCase();
+    const body = fs.readFileSync(full);
+    res.writeHead(200, {
+      'Content-Type': LINEUP_SERVE_MIME[ext] || 'application/octet-stream',
+      'Content-Length': body.length,
+      'Cache-Control': 'private, max-age=600',
+    });
+    res.end(body);
   });
 
   router.post('/admin/jokers/:id/ungrade', async (req, res) => {

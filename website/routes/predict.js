@@ -16,6 +16,17 @@ function roundPicker(rounds, currentId) {
   return `<select onchange="location.href='/predict?round='+this.value" class="border border-slate-300 rounded-lg px-3 py-2 text-sm w-full mb-4 bg-white">${opts}</select>`;
 }
 
+// Shown only before a match is graded — once the real result is in, the
+// predicted lineup is no longer relevant. Uploaded/managed by the admin via
+// lineupAdminBlock() in routes/admin.js; served by GET /lineups/:filename.
+function lineupImageHtml(match) {
+  if (!match.lineup_image) return '';
+  return `<div class="mb-2">
+    <div class="text-[11px] text-slate-400 mb-1">📋 التشكيلة المتوقعة (تقديرية)</div>
+    <img src="/lineups/${escapeHtml(match.lineup_image)}" class="w-full rounded-lg border border-slate-100" />
+  </div>`;
+}
+
 function matchCard(match, prediction, eligibleDoubleIds, doublePickId, locked) {
   const id = match.id;
   const already = !!prediction;
@@ -51,6 +62,7 @@ function matchCard(match, prediction, eligibleDoubleIds, doublePickId, locked) {
   if (already) {
     return `<div class="bg-white border border-slate-200 rounded-xl p-4 mb-3">
       ${teamRow}
+      ${lineupImageHtml(match)}
       <div class="flex items-center justify-center gap-4 text-lg font-bold">
         <span>${escapeHtml(match.team_a)}</span>
         <span class="bg-emerald-50 text-emerald-700 rounded-lg px-3 py-1">${prediction.pred_score_a} - ${prediction.pred_score_b}</span>
@@ -74,6 +86,7 @@ function matchCard(match, prediction, eligibleDoubleIds, doublePickId, locked) {
   const rosterB = logic.getRoster(match.team_b);
   return `<form method="post" action="/predict/match/${id}" class="bg-white border border-slate-200 rounded-xl p-4 mb-3">
     ${teamRow}
+    ${lineupImageHtml(match)}
     <div class="flex items-center justify-center gap-3">
       <span class="font-bold">${escapeHtml(match.team_a)}</span>
       <input type="number" min="0" max="20" name="score_a" required class="score-input w-16 text-center border border-slate-300 rounded-lg py-1.5" data-target="scorers-a-${id}" data-team="${escapeHtml(match.team_a)}" data-field="scorers_a_${id}" data-players="${escapeHtml(JSON.stringify(rosterA))}" />

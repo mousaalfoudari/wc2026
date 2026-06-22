@@ -3,7 +3,8 @@ const http = require('http');
 const { URL } = require('url');
 
 const Router = require('./lib/router');
-const { parseCookies, readBody, parseFormBody } = require('./lib/util');
+const { parseCookies, readBody, readBodyBuffer, parseFormBody } = require('./lib/util');
+const { parseContentType, parseMultipart } = require('./lib/multipart');
 const { getUserIdFromCookies } = require('./lib/auth');
 const { serveStatic, sendHtml, sendText } = require('./lib/http');
 const { layout, redirect } = require('./lib/render');
@@ -19,6 +20,9 @@ require('./routes/leaderboard')(router);
 require('./routes/admin')(router);
 
 const PORT = process.env.PORT || 3000;
+// Generous cap for image uploads (lineup photos) — well above what a normal
+// phone screenshot/graphic needs, while still bounding memory use per request.
+const MULTIPART_MAX_BYTES = 8 * 1024 * 1024;
 
 function ensureAdminAccount() {
   const db = require('./lib/db');
@@ -87,11 +91,21 @@ const server = http.createServer(async (req, res) => {
     req.query = Object.fromEntries(u.searchParams.entries());
 
     if (req.method === 'POST') {
-      const raw = await readBody(req);
       const ct = req.headers['content-type'] || '';
-      req.body = ct.includes('application/json') ? safeJson(raw) : parseFormBody(raw);
+      if (ct.toLowerCase().includes('multipart/form-data')) {
+        const { boundary } = parseContentType(ct);
+        const buf = await readBodyBuffer(req, MULTIPART_MAX_BYTES);
+        const { fields, files } = parseMultipart(buf, boundary);
+        req.body = fields;
+        req.files = files;
+      } else {
+        const raw = await readBody(req);
+        req.body = ct.includes('application/json') ? safeJson(raw) : parseFormBody(raw);
+        req.files = {};
+      }
     } else {
       req.body = {};
+      req.files = {};
     }
 
     const match = router.match(req.method, pathname);
@@ -110,7 +124,11 @@ const server = http.createServer(async (req, res) => {
   } catch (err) {
     console.error('Request error:', err);
     try {
-      sendText(res, 'حدث خطأ غير متوقع في السيرفر. حاول مرة ثانية.', 500);
+      if (err && err.message === 'Body too large') {
+        sendText(res, 'الملف المرفوع كبير جداً (الحد الأقصى تقريباً ٨ ميجابايت لصور التشكيلة). رجع وارفع ملف أصغر.', 413);
+      } else {
+        sendText(res, 'حدث خطأ غير متوقع في السيرفر. حاول مرة ثانية.', 500);
+      }
     } catch (e) {
       res.end();
     }

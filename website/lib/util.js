@@ -39,22 +39,31 @@ function parseCookies(req) {
   return out;
 }
 
-function readBody(req) {
+// Buffer-preserving body reader (no UTF-8 stringify) — needed for binary
+// bodies like multipart/form-data file uploads. maxBytes defaults to the
+// same 2MB cap readBody has always used; callers that need more (e.g. image
+// uploads) pass a higher explicit cap.
+function readBodyBuffer(req, maxBytes) {
+  const limit = maxBytes || 2 * 1024 * 1024;
   return new Promise((resolve, reject) => {
     const chunks = [];
     let size = 0;
     req.on('data', (chunk) => {
       size += chunk.length;
-      if (size > 2 * 1024 * 1024) {
+      if (size > limit) {
         reject(new Error('Body too large'));
         req.destroy();
         return;
       }
       chunks.push(chunk);
     });
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('end', () => resolve(Buffer.concat(chunks)));
     req.on('error', reject);
   });
+}
+
+function readBody(req) {
+  return readBodyBuffer(req, 2 * 1024 * 1024).then((buf) => buf.toString('utf8'));
 }
 
 function parseFormBody(raw) {
@@ -120,6 +129,7 @@ module.exports = {
   escapeHtml,
   parseCookies,
   readBody,
+  readBodyBuffer,
   parseFormBody,
   toArray,
   dayKey,
