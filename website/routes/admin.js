@@ -111,6 +111,22 @@ function dashboard() {
   const rounds = logic.listRounds();
   const allUsers = users.listAll();
   const frozenCount = allUsers.filter((u) => u.status === 'frozen').length;
+  const availJokers = logic.availableJokers();
+
+  const jokersRows = availJokers
+    .map(
+      (j) => `<tr>
+        <td class="px-3 py-2 font-bold text-purple-700">${escapeHtml(j.ownerName)}</td>
+        <td class="px-3 py-2 text-sm">${escapeHtml(j.team_a)} × ${escapeHtml(j.team_b)}</td>
+        <td class="px-3 py-2 text-sm text-slate-500">${escapeHtml(j.roundName)}</td>
+        <td class="px-3 py-2 text-center">
+          <form method="post" action="/admin/jokers/${j.id}/delete" class="inline" data-confirm="تأكيد حذف هذا الجوكر من ${escapeHtml(j.ownerName)} نهائياً؟ هذا غير عملية استخدام — هذا حذف الجوكر نفسه، ولازم يكسب جوكر جديد من توقع كامل لو يبي وحد ثاني.">
+            <button class="text-[10px] bg-rose-100 hover:bg-rose-200 text-rose-700 rounded px-1.5 py-0.5">🗑️ حذف</button>
+          </form>
+        </td>
+      </tr>`
+    )
+    .join('');
 
   const roundsRows = rounds
     .map((r) => {
@@ -166,6 +182,17 @@ function dashboard() {
       <table class="w-full text-sm">
         <thead class="bg-slate-50 text-slate-500"><tr><th class="px-3 py-2 text-right">الجولة</th><th class="px-3 py-2">مباريات</th><th class="px-3 py-2">الحالة</th><th class="px-3 py-2">النتائج</th><th></th></tr></thead>
         <tbody class="divide-y divide-slate-100">${roundsRows || `<tr><td colspan="5" class="px-3 py-6 text-center text-slate-400">لا توجد جولات بعد</td></tr>`}</tbody>
+      </table>
+    </div>
+
+    <div class="flex items-center justify-between mb-2 mt-6">
+      <h2 class="font-bold">🃏 الجوكرات المتاحة الآن (${availJokers.length})</h2>
+    </div>
+    <p class="text-xs text-slate-400 mb-2">جوكر مكتسب من مباراة حقيقية يبقى متاح لصاحبه طبيعياً (حتى بعد ما تتراجع عن استخدامه لو كان تجربة) — هذا مو خطأ. إذا طلع جوكر من نتيجة دخّلتها كتجربة وما تراجعت عنها قبل تصحيحها بالنتيجة الحقيقية، احذفه من هنا.</p>
+    <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-slate-50 text-slate-500"><tr><th class="px-3 py-2 text-right">اللاعب</th><th class="px-3 py-2 text-right">من مباراة</th><th class="px-3 py-2 text-right">الجولة</th><th></th></tr></thead>
+        <tbody class="divide-y divide-slate-100">${jokersRows || `<tr><td colspan="4" class="px-3 py-6 text-center text-slate-400">ما فيه أي جوكر متاح حالياً</td></tr>`}</tbody>
       </table>
     </div>
   `;
@@ -662,6 +689,18 @@ module.exports = function (router) {
     const result = logic.ungradeJokerUse(jokerId);
     if (!result.ok) return redirect(res, '/leaderboard', result.error, 'error');
     redirect(res, '/leaderboard', 'تم التراجع عن استخدام الجوكر ✅ — رجعت النقاط وصار الجوكر متاح من جديد.');
+  });
+
+  // Permanently removes an available (unused) joker — for cleaning up one
+  // earned from a test/fake result that wasn't undone via "تراجع عن النتيجة"
+  // before the real result was entered (see availableJokers/forfeitJoker in
+  // lib/logic.js, and the "🃏 الجوكرات المتاحة الآن" section on the dashboard).
+  router.post('/admin/jokers/:id/delete', async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const jokerId = Number(req.params.id);
+    const result = logic.forfeitJoker(jokerId);
+    if (!result.ok) return redirect(res, '/admin', result.error, 'error');
+    redirect(res, '/admin', 'تم حذف الجوكر نهائياً ✅');
   });
 
   router.post('/admin/rounds/:id/bonus', async (req, res) => {

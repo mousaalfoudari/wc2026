@@ -399,6 +399,46 @@ function jokerUsageLog() {
     .all();
 }
 
+// Admin-only visibility into every joker currently sitting "available"
+// (earned but not used yet) — who has it and which match it came from. This
+// is what lets Mousa answer "why does this player still have a joker?"
+// himself: a joker earned from a real, already-finished match is legitimate
+// and should stay (e.g. it survived an "undo joker use" that only reverses
+// the use, not the earning). A joker earned from a result that was entered
+// as a test and never properly undone before being re-graded for real is a
+// leftover — forfeitJoker below lets him remove that one directly.
+function availableJokers() {
+  return db
+    .prepare(
+      `SELECT j.id, j.created_at,
+              u.name as ownerName,
+              m.team_a, m.team_b,
+              r.name as roundName
+       FROM jokers j
+       JOIN users u ON u.id = j.user_id
+       JOIN matches m ON m.id = j.earned_match_id
+       JOIN rounds r ON r.id = j.earned_round_id
+       WHERE j.status = 'available'
+       ORDER BY j.created_at DESC, j.id DESC`
+    )
+    .all();
+}
+
+// Admin-only: permanently removes an available (unused) joker — for cleaning
+// up one that was earned from a test/fake result rather than a real one. A
+// 'used' joker can't be forfeited this way (its point transfer is already
+// live) — undo the use first via ungradeJokerUse, which frees it back to
+// 'available', then forfeit it from there if needed.
+function forfeitJoker(jokerId) {
+  const joker = db.prepare('SELECT * FROM jokers WHERE id = ?').get(jokerId);
+  if (!joker) return { ok: false, error: 'الجوكر غير موجود.' };
+  if (joker.status !== 'available') {
+    return { ok: false, error: 'هذا الجوكر مستخدم حالياً — تراجع عن استخدامه الأول من سجل الجوكر بصفحة الترتيب.' };
+  }
+  db.prepare('DELETE FROM jokers WHERE id = ?').run(jokerId);
+  return { ok: true };
+}
+
 function useJoker(jokerId, userId, targetUserId) {
   const joker = db.prepare('SELECT * FROM jokers WHERE id = ? AND user_id = ?').get(jokerId, userId);
   if (!joker || joker.status !== 'available') return { ok: false, error: 'الجوكر غير متاح.' };
@@ -710,6 +750,8 @@ module.exports = {
   jokerVictimLockedThisRound,
   jokerLockedTargetIdsThisRound,
   jokerUsageLog,
+  availableJokers,
+  forfeitJoker,
   useJoker,
   ungradeJokerUse,
   computeTotals,
