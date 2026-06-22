@@ -56,17 +56,19 @@ function addMatch(roundId, teamA, teamB, kickoffAt) {
   return r.lastInsertRowid;
 }
 
-// Admin-uploaded "predicted lineup" image for a match — see routes/admin.js
-// (POST /admin/matches/:id/lineup) for the upload handler that writes the
-// file to disk under data/uploads/lineups/ and calls this to record the
-// filename, and routes/predict.js (matchCard) for where it's shown to
-// participants.
-function setMatchLineupImage(matchId, filename) {
-  db.prepare('UPDATE matches SET lineup_image = ? WHERE id = ?').run(filename, matchId);
+// Admin-uploaded "predicted lineup" image for a match — one slot per team
+// ('a' or 'b'). See routes/admin.js (POST /admin/matches/:id/lineup/:slot)
+// for the upload handler that writes the file to disk under
+// data/uploads/lineups/ and calls this to record the filename, and
+// routes/predict.js (matchCard) for where it's shown to participants.
+function setMatchLineupImage(matchId, slot, filename) {
+  const col = slot === 'b' ? 'lineup_image_b' : 'lineup_image_a';
+  db.prepare(`UPDATE matches SET ${col} = ? WHERE id = ?`).run(filename, matchId);
 }
 
-function clearMatchLineupImage(matchId) {
-  db.prepare('UPDATE matches SET lineup_image = NULL WHERE id = ?').run(matchId);
+function clearMatchLineupImage(matchId, slot) {
+  const col = slot === 'b' ? 'lineup_image_b' : 'lineup_image_a';
+  db.prepare(`UPDATE matches SET ${col} = NULL WHERE id = ?`).run(matchId);
 }
 
 // Returns set of match ids within `roundId` that are eligible for the "double"

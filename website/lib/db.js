@@ -150,11 +150,28 @@ try {
 }
 
 // Migration: filename of an admin-uploaded "predicted lineup" image for this
-// match (e.g. "match-42.jpg"), stored on disk under data/uploads/lineups/ —
-// see setMatchLineupImage/clearMatchLineupImage in lib/logic.js and the
-// upload UI in routes/admin.js. NULL means no lineup image has been set.
+// match (e.g. "match-42.jpg"). Superseded by the two per-team columns below
+// (lineup_image_a / lineup_image_b) — kept around harmlessly since SQLite
+// can't easily drop a column on every deployed DB, but nothing reads from
+// it anymore.
 try {
   db.exec('ALTER TABLE matches ADD COLUMN lineup_image TEXT;');
+} catch (e) {
+  // column already exists — nothing to do.
+}
+
+// Migration: one predicted-lineup image per team for this match (e.g.
+// "match-42-a.jpg" / "match-42-b.jpg"), stored on disk under
+// data/uploads/lineups/ — see setMatchLineupImage/clearMatchLineupImage in
+// lib/logic.js and the upload UI in routes/admin.js. NULL means that team's
+// slot has no image set.
+try {
+  db.exec('ALTER TABLE matches ADD COLUMN lineup_image_a TEXT;');
+} catch (e) {
+  // column already exists — nothing to do.
+}
+try {
+  db.exec('ALTER TABLE matches ADD COLUMN lineup_image_b TEXT;');
 } catch (e) {
   // column already exists — nothing to do.
 }

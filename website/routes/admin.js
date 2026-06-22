@@ -34,10 +34,10 @@ function sniffImageExt(buf) {
   return null;
 }
 
-function removeExistingLineupFiles(matchId) {
+function removeExistingLineupFiles(matchId, slot) {
   if (!fs.existsSync(LINEUP_DIR)) return;
   for (const f of fs.readdirSync(LINEUP_DIR)) {
-    if (f.startsWith(`match-${matchId}.`)) {
+    if (f.startsWith(`match-${matchId}-${slot}.`)) {
       try {
         fs.unlinkSync(path.join(LINEUP_DIR, f));
       } catch (e) {
@@ -275,28 +275,42 @@ function scorerInputsBlock(idA, idB, teamA, teamB) {
   </div>`;
 }
 
-// Lets the admin attach/replace/remove an image of the expected lineup for
-// a specific match — shown to participants on /predict to help them decide
-// their prediction (see matchCard in routes/predict.js). One image per
-// match; uploading a new one replaces the old file on disk.
-function lineupAdminBlock(m) {
-  const hasImage = !!m.lineup_image;
-  return `<div class="border border-slate-200 rounded-lg p-2 mt-2 bg-slate-50">
+// One upload slot for one team's expected lineup image within a match (see
+// lineupAdminBlock below, which renders one of these per team side by side).
+function lineupSlotBlock(m, slot, teamName) {
+  const filename = slot === 'b' ? m.lineup_image_b : m.lineup_image_a;
+  const hasImage = !!filename;
+  return `<div>
     <div class="flex items-center justify-between mb-1">
-      <span class="text-[11px] font-bold text-slate-500">📋 التشكيلة المتوقعة (صورة، اختياري)</span>
+      <span class="text-[10px] font-bold text-slate-500">${escapeHtml(teamName)}</span>
       ${
         hasImage
-          ? `<form method="post" action="/admin/matches/${m.id}/lineup/delete" class="inline" data-confirm="تأكيد حذف صورة التشكيلة المتوقعة لمباراة ${escapeHtml(m.team_a)} × ${escapeHtml(m.team_b)}؟">
-              <button class="text-[10px] bg-rose-100 hover:bg-rose-200 text-rose-700 rounded px-1.5 py-0.5">🗑️ حذف الصورة</button>
+          ? `<form method="post" action="/admin/matches/${m.id}/lineup/${slot}/delete" class="inline" data-confirm="تأكيد حذف صورة تشكيلة ${escapeHtml(teamName)} المتوقعة؟">
+              <button class="text-[10px] bg-rose-100 hover:bg-rose-200 text-rose-700 rounded px-1.5 py-0.5">🗑️</button>
             </form>`
           : ''
       }
     </div>
-    ${hasImage ? `<img src="/lineups/${escapeHtml(m.lineup_image)}" class="max-h-32 rounded-lg mb-2" />` : ''}
-    <form method="post" action="/admin/matches/${m.id}/lineup" enctype="multipart/form-data" class="flex items-center gap-2">
-      <input type="file" name="lineup_image" accept="image/*" required class="text-xs flex-1" />
-      <button class="text-xs bg-slate-600 text-white rounded-lg px-2 py-1 font-bold hover:bg-slate-700 whitespace-nowrap">${hasImage ? 'استبدال' : 'رفع'}</button>
+    ${hasImage ? `<img src="/lineups/${escapeHtml(filename)}" class="w-full max-h-32 object-cover rounded-lg mb-2" />` : ''}
+    <form method="post" action="/admin/matches/${m.id}/lineup/${slot}" enctype="multipart/form-data" class="flex items-center gap-1">
+      <input type="file" name="lineup_image" accept="image/*" required class="text-[11px] flex-1 min-w-0" />
+      <button class="text-[11px] bg-slate-600 text-white rounded-lg px-2 py-1 font-bold hover:bg-slate-700 whitespace-nowrap">${hasImage ? 'استبدال' : 'رفع'}</button>
     </form>
+  </div>`;
+}
+
+// Lets the admin attach/replace/remove an image of each team's expected
+// lineup for a specific match — shown to participants on /predict to help
+// them decide their prediction (see matchCard in routes/predict.js). Two
+// independent slots per match (one per team); uploading a new one replaces
+// only that team's old file on disk.
+function lineupAdminBlock(m) {
+  return `<div class="border border-slate-200 rounded-lg p-2 mt-2 bg-slate-50">
+    <div class="text-[11px] font-bold text-slate-500 mb-1">📋 التشكيلة المتوقعة (صورة لكل فريق، اختياري)</div>
+    <div class="grid grid-cols-2 gap-2">
+      ${lineupSlotBlock(m, 'a', m.team_a)}
+      ${lineupSlotBlock(m, 'b', m.team_b)}
+    </div>
   </div>`;
 }
 
@@ -762,13 +776,15 @@ module.exports = function (router) {
     redirect(res, backTo, 'تم التراجع عن النتيجة ✅ — المباراة رجعت بدون نتيجة.');
   });
 
-  // Admin uploads (or replaces) the "predicted lineup" image for a match —
-  // see lineupAdminBlock() above and matchCard() in routes/predict.js for
-  // where participants see it. Multipart parsing happens centrally in
+  // Admin uploads (or replaces) one team's "predicted lineup" image for a
+  // match — see lineupAdminBlock() above and matchCard() in routes/predict.js
+  // for where participants see it. Multipart parsing happens centrally in
   // server.js; req.files.lineup_image.data is the raw image Buffer here.
-  router.post('/admin/matches/:id/lineup', async (req, res) => {
+  // :slot is 'a' or 'b' (which team within the match this image is for).
+  router.post('/admin/matches/:id/lineup/:slot', async (req, res) => {
     if (!requireAdmin(req, res)) return;
     const matchId = Number(req.params.id);
+    const slot = req.params.slot === 'b' ? 'b' : 'a';
     const match = logic.getMatch(matchId);
     if (!match) return redirect(res, '/admin', 'المباراة غير موجودة.', 'error');
 
@@ -783,22 +799,23 @@ module.exports = function (router) {
     }
 
     ensureLineupDir();
-    removeExistingLineupFiles(matchId);
-    const filename = `match-${matchId}${ext}`;
+    removeExistingLineupFiles(matchId, slot);
+    const filename = `match-${matchId}-${slot}${ext}`;
     fs.writeFileSync(path.join(LINEUP_DIR, filename), file.data);
-    logic.setMatchLineupImage(matchId, filename);
+    logic.setMatchLineupImage(matchId, slot, filename);
 
     redirect(res, `/admin/rounds/${match.round_id}`, 'تم رفع صورة التشكيلة المتوقعة ✅');
   });
 
-  router.post('/admin/matches/:id/lineup/delete', async (req, res) => {
+  router.post('/admin/matches/:id/lineup/:slot/delete', async (req, res) => {
     if (!requireAdmin(req, res)) return;
     const matchId = Number(req.params.id);
+    const slot = req.params.slot === 'b' ? 'b' : 'a';
     const match = logic.getMatch(matchId);
     if (!match) return redirect(res, '/admin', 'المباراة غير موجودة.', 'error');
 
-    removeExistingLineupFiles(matchId);
-    logic.clearMatchLineupImage(matchId);
+    removeExistingLineupFiles(matchId, slot);
+    logic.clearMatchLineupImage(matchId, slot);
     redirect(res, `/admin/rounds/${match.round_id}`, 'تم حذف صورة التشكيلة المتوقعة ✅');
   });
 
@@ -807,11 +824,13 @@ module.exports = function (router) {
   // rather than public/, so it can't go through the existing serveStatic()
   // helper in lib/http.js (which only serves public/) — hence this dedicated
   // route, with the filename pattern strictly whitelisted to block any path
-  // traversal via the :filename param.
+  // traversal via the :filename param. Accepts both the current per-team
+  // naming (match-<id>-a/b.ext) and the older single-image naming
+  // (match-<id>.ext) in case any pre-existing file is still referenced.
   router.get('/lineups/:filename', async (req, res) => {
     if (!requireUser(req, res)) return;
     const name = String(req.params.filename || '');
-    if (!/^match-\d+\.(jpg|jpeg|png|webp|gif)$/i.test(name)) {
+    if (!/^match-\d+(-[ab])?\.(jpg|jpeg|png|webp|gif)$/i.test(name)) {
       return sendText(res, 'غير موجود', 404);
     }
     const full = path.join(LINEUP_DIR, name);

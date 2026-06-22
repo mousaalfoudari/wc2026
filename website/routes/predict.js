@@ -18,12 +18,26 @@ function roundPicker(rounds, currentId) {
 
 // Shown only before a match is graded — once the real result is in, the
 // predicted lineup is no longer relevant. Uploaded/managed by the admin via
-// lineupAdminBlock() in routes/admin.js; served by GET /lineups/:filename.
+// lineupAdminBlock() in routes/admin.js (one image per team); served by
+// GET /lineups/:filename. Renders side by side; if only one team's image
+// was uploaded, shows just that one.
 function lineupImageHtml(match) {
-  if (!match.lineup_image) return '';
+  const a = match.lineup_image_a;
+  const b = match.lineup_image_b;
+  if (!a && !b) return '';
+  const col = (filename, teamName) =>
+    filename
+      ? `<div class="flex-1 min-w-0">
+          <div class="text-[10px] text-slate-400 mb-1 text-center">${escapeHtml(teamName)}</div>
+          <img src="/lineups/${escapeHtml(filename)}" class="w-full rounded-lg border border-slate-100" />
+        </div>`
+      : '';
   return `<div class="mb-2">
     <div class="text-[11px] text-slate-400 mb-1">📋 التشكيلة المتوقعة (تقديرية)</div>
-    <img src="/lineups/${escapeHtml(match.lineup_image)}" class="w-full rounded-lg border border-slate-100" />
+    <div class="flex gap-2">
+      ${col(a, match.team_a)}
+      ${col(b, match.team_b)}
+    </div>
   </div>`;
 }
 
