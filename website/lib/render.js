@@ -44,7 +44,7 @@ ${body}
 // login/register card already used, just full-width across every page now.
 function bannerHtml() {
   return `<div class="max-w-3xl mx-auto px-4 pt-3">
-    <div class="w-full rounded-xl shadow-sm overflow-hidden" style="aspect-ratio: 700 / 380;">
+    <div class="w-full rounded-xl shadow-sm overflow-hidden" style="aspect-ratio: 700 / 260;">
       <img src="/banner.jpg" alt="مسابقة توقعات كأس العالم 2026" style="width: 100%; height: 100%; object-fit: cover; object-position: top center;" />
     </div>
   </div>`;
