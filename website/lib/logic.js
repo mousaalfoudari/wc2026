@@ -616,6 +616,142 @@ function roundPointsSummary(roundId) {
     .sort((a, b) => b.points - a.points);
 }
 
+// Admin-only full history for ONE participant across the whole tournament —
+// every prediction they've made (graded or not), their bonus answers, manual
+// adjustments, and joker activity, with each round subtotaled and rolled up
+// into the same grand total leaderboard() shows. This is the "click a name
+// on the leaderboard" drill-down Mousa asked for, so he can see exactly how
+// anyone's total was built without digging through every round's "كل
+// التوقعات" page one at a time looking for one name.
+function getUserPredictionHistory(userId) {
+  const user = db.prepare('SELECT id, name FROM users WHERE id = ?').get(userId);
+  if (!user) return null;
+
+  const rounds = listRounds();
+  const doubleByRound = new Map(
+    db
+      .prepare('SELECT round_id, double_match_id FROM round_picks WHERE user_id = ?')
+      .all(userId)
+      .map((r) => [r.round_id, r.double_match_id])
+  );
+
+  const roundsOut = [];
+  for (const round of rounds) {
+    const matches = round.matches;
+    const matchIds = matches.map((m) => m.id);
+    let predRows = [];
+    if (matchIds.length) {
+      const placeholders = matchIds.map(() => '?').join(',');
+      predRows = db
+        .prepare(`SELECT * FROM predictions WHERE user_id = ? AND match_id IN (${placeholders})`)
+        .all(userId, ...matchIds);
+    }
+    const bonusAnswer = getBonusAnswer(userId, round.id);
+    const roundAdjustments = db
+      .prepare('SELECT * FROM adjustments WHERE user_id = ? AND round_id = ? ORDER BY id ASC')
+      .all(userId, round.id);
+
+    // Skip rounds this participant has zero footprint in — keeps the page
+    // from listing every untouched future round in the tournament.
+    if (!predRows.length && !bonusAnswer && !roundAdjustments.length) continue;
+
+    const predByMatch = new Map(predRows.map((r) => [r.match_id, r]));
+    const doubleMatchId = doubleByRound.has(round.id) ? doubleByRound.get(round.id) : null;
+
+    const predictions = matches
+      .filter((m) => predByMatch.has(m.id))
+      .map((m) => {
+        const r = predByMatch.get(m.id);
+        const predScorersA = safeJsonParse(r.pred_scorers_a, []);
+        const predScorersB = safeJsonParse(r.pred_scorers_b, []);
+        let scorerMatchA = [];
+        let scorerMatchB = [];
+        if (m.graded) {
+          scorerMatchA = scorerMatchFlags(predScorersA, safeJsonParse(m.final_scorers_a, []));
+          scorerMatchB = scorerMatchFlags(predScorersB, safeJsonParse(m.final_scorers_b, []));
+        }
+        return {
+          matchId: m.id,
+          teamA: m.team_a,
+          teamB: m.team_b,
+          kickoffAt: m.kickoff_at,
+          graded: !!m.graded,
+          finalScoreA: m.final_score_a,
+          finalScoreB: m.final_score_b,
+          predScoreA: r.pred_score_a,
+          predScoreB: r.pred_score_b,
+          predScorersA,
+          predScorersB,
+          scorerMatchA,
+          scorerMatchB,
+          isDouble: doubleMatchId === m.id,
+          pointsEarned: r.points_earned,
+          perfect: !!r.perfect,
+        };
+      });
+
+    const predictionPoints = predictions.reduce((s, p) => s + (p.pointsEarned || 0), 0);
+    const bonusPoints = bonusAnswer && bonusAnswer.points != null ? bonusAnswer.points : 0;
+    const adjustmentPoints = roundAdjustments.reduce((s, a) => s + a.delta, 0);
+
+    roundsOut.push({
+      roundId: round.id,
+      roundName: round.name,
+      isFire: !!round.is_fire,
+      locked: round.locked,
+      doubleMatchId,
+      predictions,
+      bonusQuestion: round.bonus_question,
+      bonusAnswer: bonusAnswer
+        ? { choiceText: round.bonus_options[bonusAnswer.choice_index] != null ? round.bonus_options[bonusAnswer.choice_index] : null, points: bonusAnswer.points }
+        : null,
+      adjustments: roundAdjustments,
+      subtotal: predictionPoints + bonusPoints + adjustmentPoints,
+    });
+  }
+
+  const noRoundAdjustments = db
+    .prepare('SELECT * FROM adjustments WHERE user_id = ? AND round_id IS NULL ORDER BY id ASC')
+    .all(userId);
+
+  // Jokers this user earned (whether still available, or already used on
+  // someone) — lets the admin see "where did this joker come from".
+  const jokersEarned = db
+    .prepare(
+      `SELECT j.*, m.team_a, m.team_b, r.name as roundName, uv.name as victimName
+       FROM jokers j
+       JOIN matches m ON m.id = j.earned_match_id
+       JOIN rounds r ON r.id = j.earned_round_id
+       LEFT JOIN users uv ON uv.id = j.used_against_user_id
+       WHERE j.user_id = ? ORDER BY j.id ASC`
+    )
+    .all(userId);
+
+  // Jokers OTHER people used against this user (the -5/+5 swing shows up as a
+  // round-scoped adjustment already counted above via victim_adjustment_id —
+  // this is purely informational, "who hit you and when").
+  const jokersAgainstThem = db
+    .prepare(
+      `SELECT j.*, ua.name as attackerName, r.name as roundName
+       FROM jokers j
+       JOIN users ua ON ua.id = j.user_id
+       LEFT JOIN rounds r ON r.id = j.used_round_id
+       WHERE j.used_against_user_id = ? AND j.status = 'used' ORDER BY j.used_at ASC`
+    )
+    .all(userId);
+
+  const totals = computeTotals();
+
+  return {
+    user: { id: user.id, name: user.name },
+    rounds: roundsOut,
+    noRoundAdjustments,
+    jokersEarned,
+    jokersAgainstThem,
+    grandTotal: totals[userId] || 0,
+  };
+}
+
 // Manual point adjustments — used by the admin to credit/debit points outside
 // match grading (e.g. points a participant already earned before the
 // competition started being tracked on the site). Stored as a delta + reason
@@ -801,6 +937,7 @@ module.exports = {
   computeTotals,
   leaderboard,
   roundPointsSummary,
+  getUserPredictionHistory,
   addAdjustment,
   manualPointsByUser,
   creditManualScorer,

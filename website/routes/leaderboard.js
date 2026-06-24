@@ -17,9 +17,17 @@ module.exports = function (router) {
         const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}`;
         const frozen = u.status === 'frozen' ? ' <span class="text-rose-500 text-xs">❄️ مجمّد</span>' : '';
         const me = u.id === req.user.id ? ' class="bg-emerald-50"' : '';
+        // Admin-only drill-down: the name links to that participant's full
+        // prediction history + points breakdown (see /admin/users/:id/predictions
+        // in routes/admin.js). Regular participants just see plain text — this
+        // keeps everyone else's prediction detail private, consistent with the
+        // rest of the app's privacy model.
+        const nameHtml = isAdmin
+          ? `<a href="/admin/users/${u.id}/predictions" class="hover:underline">${escapeHtml(u.name)}</a>`
+          : escapeHtml(u.name);
         return `<tr${me}>
           <td class="px-3 py-2 text-center font-bold">${medal}</td>
-          <td class="px-3 py-2">${escapeHtml(u.name)}${frozen}</td>
+          <td class="px-3 py-2">${nameHtml}${frozen}</td>
           <td class="px-3 py-2 text-center font-bold ${u.total < 0 ? 'text-rose-600' : 'text-emerald-700'}">${u.total}</td>
         </tr>`;
       })
