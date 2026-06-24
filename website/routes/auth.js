@@ -6,11 +6,21 @@ const { makeSessionCookie, clearSessionCookie } = require('../lib/auth');
 
 const LOGIN_BG = '/login-bg.jpg';
 
-// The poster banner used to live only here (login/register card) — it now
-// renders at the top of every page via bannerHtml() in lib/render.js, so it
-// isn't repeated a second time on these two pages specifically. Instead,
-// these two pages get their own full-page background (LOGIN_BG, set below)
-// behind the card, via layout()'s bgImage option.
+// Shows the new grass/TAKTIKHA image as a fixed 700/480 box — same crop
+// technique as the sitewide bannerHtml() in lib/render.js (aspect-ratio +
+// object-fit: cover + object-position: top center) — instead of a full-page
+// CSS background. A full-page background either cropped the image's text
+// (with background-size: cover) or left mismatched-color letterboxing (with
+// contain); a fixed box avoids both. Scoped to just these two pages, sized
+// to match the login/register card's width.
+function loginImageHtml() {
+  return `<div class="max-w-sm mx-auto mt-2">
+    <div class="w-full rounded-xl shadow-sm overflow-hidden" style="aspect-ratio: 700 / 480;">
+      <img src="${LOGIN_BG}" alt="" style="width: 100%; height: 100%; object-fit: cover; object-position: top center;" />
+    </div>
+  </div>`;
+}
+
 function card(inner) {
   return `
     <div class="max-w-sm mx-auto mt-2">
@@ -19,7 +29,7 @@ function card(inner) {
 }
 
 function registerPage() {
-  return card(`
+  return loginImageHtml() + card(`
     <h1 class="text-xl font-bold text-emerald-700 mb-1">تسجيل مشترك جديد</h1>
     <p class="text-sm text-slate-500 mb-4">حط اسمك وكلمة مرور تخصك، وما يحق لغيرك يدخل على توقعك إلا بهذي البيانات.</p>
     <form method="post" action="/register" class="space-y-3">
@@ -38,7 +48,7 @@ function registerPage() {
 }
 
 function loginPage() {
-  return card(`
+  return loginImageHtml() + card(`
     <h1 class="text-xl font-bold text-emerald-700 mb-1">تسجيل الدخول</h1>
     <form method="post" action="/login" class="space-y-3 mt-4">
       <div>
@@ -58,14 +68,14 @@ function loginPage() {
 module.exports = function (router) {
   router.get('/register', async (req, res) => {
     if (req.user) return redirect(res, '/predict');
-    sendHtml(res, layout({ title: 'تسجيل جديد', user: null, body: registerPage(), msg: req.flashMsg, msgType: req.flashType, bgImage: LOGIN_BG }));
+    sendHtml(res, layout({ title: 'تسجيل جديد', user: null, body: registerPage(), msg: req.flashMsg, msgType: req.flashType }));
   });
 
   router.post('/register', async (req, res) => {
     const { name, password } = req.body;
     const result = users.createUser(name, password, false);
     if (!result.ok) {
-      sendHtml(res, layout({ title: 'تسجيل جديد', user: null, body: registerPage(), msg: result.error, msgType: 'error', bgImage: LOGIN_BG }));
+      sendHtml(res, layout({ title: 'تسجيل جديد', user: null, body: registerPage(), msg: result.error, msgType: 'error' }));
       return;
     }
     res.setHeader('Set-Cookie', makeSessionCookie(result.id));
@@ -74,14 +84,14 @@ module.exports = function (router) {
 
   router.get('/login', async (req, res) => {
     if (req.user) return redirect(res, '/predict');
-    sendHtml(res, layout({ title: 'تسجيل الدخول', user: null, body: loginPage(), msg: req.flashMsg, msgType: req.flashType, bgImage: LOGIN_BG }));
+    sendHtml(res, layout({ title: 'تسجيل الدخول', user: null, body: loginPage(), msg: req.flashMsg, msgType: req.flashType }));
   });
 
   router.post('/login', async (req, res) => {
     const { name, password } = req.body;
     const result = users.checkLogin(name, password);
     if (!result.ok) {
-      sendHtml(res, layout({ title: 'تسجيل الدخول', user: null, body: loginPage(), msg: result.error, msgType: 'error', bgImage: LOGIN_BG }));
+      sendHtml(res, layout({ title: 'تسجيل الدخول', user: null, body: loginPage(), msg: result.error, msgType: 'error' }));
       return;
     }
     res.setHeader('Set-Cookie', makeSessionCookie(result.user.id));

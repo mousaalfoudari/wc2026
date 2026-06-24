@@ -1,7 +1,7 @@
 'use strict';
 const { escapeHtml } = require('./util');
 
-function layout({ title, user, body, msg, msgType, active, bgImage }) {
+function layout({ title, user, body, msg, msgType, active }) {
   const nav = navHtml(user, active);
   const flash = msg
     ? `<div class="max-w-3xl mx-auto mt-4 px-4">
@@ -11,22 +11,6 @@ function layout({ title, user, body, msg, msgType, active, bgImage }) {
              : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
          }">${escapeHtml(msg)}</div>
        </div>`
-    : '';
-
-  // bgImage lets specific pages (currently just login/register) show a
-  // full-page background image behind the normal white cards/nav, instead
-  // of the plain slate-50 fill every other page uses. background-size:
-  // contain (not cover) so the image is never cropped — login-bg.jpg has
-  // text/logo on it, and cover was cutting parts of it off on most screen
-  // ratios. The dark-green background-color (sampled from the image's own
-  // grass edges) fills whatever letterboxed space contain leaves, so it
-  // blends instead of showing a hard edge. min-h-screen (already on body)
-  // keeps it filling the viewport even on short pages; no
-  // background-attachment:fixed since that's broken on iOS Safari and most
-  // participants are on phones.
-  const bodyClass = bgImage ? 'min-h-screen font-arabic text-slate-800' : 'bg-slate-50 min-h-screen font-arabic text-slate-800';
-  const bodyStyle = bgImage
-    ? ` style="background-image: url('${escapeHtml(bgImage)}'); background-size: contain; background-position: top center; background-repeat: no-repeat; background-color: #2a4818;"`
     : '';
 
   return `<!doctype html>
@@ -40,7 +24,7 @@ function layout({ title, user, body, msg, msgType, active, bgImage }) {
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;900&display=swap" rel="stylesheet">
 </head>
-<body class="${bodyClass}"${bodyStyle}>
+<body class="bg-slate-50 min-h-screen font-arabic text-slate-800">
 ${bannerHtml()}
 ${nav}
 ${flash}
