@@ -4,9 +4,13 @@ const { sendHtml } = require('../lib/http');
 const users = require('../lib/users');
 const { makeSessionCookie, clearSessionCookie } = require('../lib/auth');
 
+const LOGIN_BG = '/login-bg.jpg';
+
 // The poster banner used to live only here (login/register card) — it now
 // renders at the top of every page via bannerHtml() in lib/render.js, so it
-// isn't repeated a second time on these two pages specifically.
+// isn't repeated a second time on these two pages specifically. Instead,
+// these two pages get their own full-page background (LOGIN_BG, set below)
+// behind the card, via layout()'s bgImage option.
 function card(inner) {
   return `
     <div class="max-w-sm mx-auto mt-2">
@@ -54,14 +58,14 @@ function loginPage() {
 module.exports = function (router) {
   router.get('/register', async (req, res) => {
     if (req.user) return redirect(res, '/predict');
-    sendHtml(res, layout({ title: 'تسجيل جديد', user: null, body: registerPage(), msg: req.flashMsg, msgType: req.flashType }));
+    sendHtml(res, layout({ title: 'تسجيل جديد', user: null, body: registerPage(), msg: req.flashMsg, msgType: req.flashType, bgImage: LOGIN_BG }));
   });
 
   router.post('/register', async (req, res) => {
     const { name, password } = req.body;
     const result = users.createUser(name, password, false);
     if (!result.ok) {
-      sendHtml(res, layout({ title: 'تسجيل جديد', user: null, body: registerPage(), msg: result.error, msgType: 'error' }));
+      sendHtml(res, layout({ title: 'تسجيل جديد', user: null, body: registerPage(), msg: result.error, msgType: 'error', bgImage: LOGIN_BG }));
       return;
     }
     res.setHeader('Set-Cookie', makeSessionCookie(result.id));
@@ -70,14 +74,14 @@ module.exports = function (router) {
 
   router.get('/login', async (req, res) => {
     if (req.user) return redirect(res, '/predict');
-    sendHtml(res, layout({ title: 'تسجيل الدخول', user: null, body: loginPage(), msg: req.flashMsg, msgType: req.flashType }));
+    sendHtml(res, layout({ title: 'تسجيل الدخول', user: null, body: loginPage(), msg: req.flashMsg, msgType: req.flashType, bgImage: LOGIN_BG }));
   });
 
   router.post('/login', async (req, res) => {
     const { name, password } = req.body;
     const result = users.checkLogin(name, password);
     if (!result.ok) {
-      sendHtml(res, layout({ title: 'تسجيل الدخول', user: null, body: loginPage(), msg: result.error, msgType: 'error' }));
+      sendHtml(res, layout({ title: 'تسجيل الدخول', user: null, body: loginPage(), msg: result.error, msgType: 'error', bgImage: LOGIN_BG }));
       return;
     }
     res.setHeader('Set-Cookie', makeSessionCookie(result.user.id));
