@@ -4,12 +4,12 @@ const { sendHtml } = require('../lib/http');
 const users = require('../lib/users');
 const { makeSessionCookie, clearSessionCookie } = require('../lib/auth');
 
+// The poster banner used to live only here (login/register card) — it now
+// renders at the top of every page via bannerHtml() in lib/render.js, so it
+// isn't repeated a second time on these two pages specifically.
 function card(inner) {
   return `
-    <div class="max-w-sm mx-auto mt-6">
-      <div class="w-full rounded-2xl shadow-sm mb-4 overflow-hidden" style="aspect-ratio: 700 / 480;">
-        <img src="/banner.jpg" alt="مسابقة توقعات كأس العالم 2026" style="width: 100%; height: 100%; object-fit: cover; object-position: top center;" />
-      </div>
+    <div class="max-w-sm mx-auto mt-2">
       <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-6">${inner}</div>
     </div>`;
 }

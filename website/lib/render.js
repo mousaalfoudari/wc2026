@@ -25,6 +25,7 @@ function layout({ title, user, body, msg, msgType, active }) {
 <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;900&display=swap" rel="stylesheet">
 </head>
 <body class="bg-slate-50 min-h-screen font-arabic text-slate-800">
+${bannerHtml()}
 ${nav}
 ${flash}
 <main class="max-w-3xl mx-auto px-4 py-6">
@@ -34,6 +35,19 @@ ${body}
 <script src="/app.js"></script>
 </body>
 </html>`;
+}
+
+// Top-of-every-page banner strip — shows the tournament poster (logo,
+// trophy, ball, tagline) so the site has some visual identity beyond plain
+// text/tables, instead of only appearing on the login/register card like
+// before. Same crop (aspect-ratio + object-position: top center) the
+// login/register card already used, just full-width across every page now.
+function bannerHtml() {
+  return `<div class="max-w-3xl mx-auto px-4 pt-3">
+    <div class="w-full rounded-xl shadow-sm overflow-hidden" style="aspect-ratio: 700 / 380;">
+      <img src="/banner.jpg" alt="مسابقة توقعات كأس العالم 2026" style="width: 100%; height: 100%; object-fit: cover; object-position: top center;" />
+    </div>
+  </div>`;
 }
 
 function navHtml(user, active) {
