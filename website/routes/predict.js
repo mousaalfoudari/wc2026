@@ -5,6 +5,7 @@ const { requireUser } = require('../lib/guard');
 const { toArray, fmtDateTime, safeJsonParse } = require('../lib/util');
 const logic = require('../lib/logic');
 const db = require('../lib/db');
+const { renderUserHistory } = require('../lib/userHistoryView');
 
 function roundPicker(rounds, currentId) {
   const opts = rounds
@@ -220,6 +221,9 @@ module.exports = function (router) {
       .join('');
 
     const body = `
+      <div class="text-left mb-2">
+        <a href="/points" class="text-sm text-emerald-700 hover:underline">📊 نقاطي بالتفصيل</a>
+      </div>
       ${roundPicker(rounds, round.id)}
       <h2 class="text-lg font-bold mb-1">${escapeHtml(round.name)} ${round.locked ? '🔒 مقفولة' : '🟢 مفتوحة'}</h2>
       ${lockCountdownHtml(round)}
@@ -249,6 +253,29 @@ module.exports = function (router) {
         msg: req.flashMsg,
         msgType: req.flashType,
         body,
+      })
+    );
+  });
+
+  // Self-service points breakdown — any logged-in participant can see their
+  // OWN full prediction history + how their total was calculated (same
+  // breakdown the admin sees via /admin/users/:id/predictions in
+  // routes/admin.js, sharing renderUserHistory from lib/userHistoryView.js).
+  // Deliberately takes no :id param — always req.user.id — so there is no
+  // way to reach anyone else's data through this route, preserving the
+  // site's privacy model where participants can't see each other's details.
+  router.get('/points', async (req, res) => {
+    if (!requireUser(req, res)) return;
+    const history = logic.getUserPredictionHistory(req.user.id);
+    sendHtml(
+      res,
+      layout({
+        title: 'نقاطي بالتفصيل',
+        user: req.user,
+        active: 'predict',
+        msg: req.flashMsg,
+        msgType: req.flashType,
+        body: renderUserHistory(history, { backHref: '/predict', backLabel: '← رجوع لتوقعاتي' }),
       })
     );
   });
