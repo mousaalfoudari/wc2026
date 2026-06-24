@@ -47,8 +47,15 @@ function outcome(scoreA, scoreB) {
 /**
  * Grade a single prediction against the final result.
  * Returns { points, perfect, scorerPoints, basePoints }
+ *
+ * `isDouble` — this match was the participant's personal "الدبل" pick.
+ * `isFireRound` — the whole round is flagged "نارية" (fiery), doubling
+ * everyone's points. The two never stack: a match that's both someone's
+ * double AND inside a fiery round still only gets a single ×2, never ×4
+ * (confirmed with the site owner — fiery rounds double the general points
+ * only, independent of anyone's personal double).
  */
-function gradePrediction(pred, finalA, finalB, finalScorersA, finalScorersB, isDouble) {
+function gradePrediction(pred, finalA, finalB, finalScorersA, finalScorersB, isDouble, isFireRound) {
   const exact = pred.pred_score_a === finalA && pred.pred_score_b === finalB;
   const outcomeMatch = outcome(pred.pred_score_a, pred.pred_score_b) === outcome(finalA, finalB);
 
@@ -62,7 +69,12 @@ function gradePrediction(pred, finalA, finalB, finalScorersA, finalScorersB, isD
     const matchedA = countScorerMatches(pred.pred_scorers_a, finalScorersA);
     const matchedB = countScorerMatches(pred.pred_scorers_b, finalScorersB);
     scorerPoints = (matchedA + matchedB) * 2;
+    // A 0-0 result trivially has zero predicted/actual scorers on both
+    // sides, which would otherwise satisfy every condition below for free —
+    // require at least one real goal so an empty 0-0 prediction can't earn
+    // a joker (confirmed with the site owner).
     perfect =
+      finalA + finalB > 0 &&
       matchedA === finalScorersA.length &&
       matchedB === finalScorersB.length &&
       pred.pred_scorers_a.length === finalScorersA.length &&
@@ -70,7 +82,7 @@ function gradePrediction(pred, finalA, finalB, finalScorersA, finalScorersB, isD
   }
 
   let points = basePoints + scorerPoints;
-  if (isDouble) points *= 2;
+  if (isDouble || isFireRound) points *= 2;
 
   return { points, perfect, scorerPoints, basePoints };
 }

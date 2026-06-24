@@ -176,4 +176,17 @@ try {
   // column already exists — nothing to do.
 }
 
+// Migration: marks a round as "نارية" (fiery) — every correct prediction in
+// that round earns double points. Toggled by the admin from the round
+// management page (see POST /admin/rounds/:id/fire in routes/admin.js) and
+// read at grading time in gradeMatch (lib/logic.js) / gradePrediction
+// (lib/scoring.js). Does NOT stack with a participant's personal "الدبل"
+// pick on the same match — gradePrediction applies at most one ×2, whether
+// it comes from the double or from the round being fiery.
+try {
+  db.exec("ALTER TABLE rounds ADD COLUMN is_fire INTEGER NOT NULL DEFAULT 0;");
+} catch (e) {
+  // column already exists — nothing to do.
+}
+
 module.exports = db;

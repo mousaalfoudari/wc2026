@@ -9,6 +9,7 @@
     el.placeholder = placeholder;
     el.className = FIELD_CLASS;
     el.value = value || '';
+    el.required = true;
     return el;
   }
 
@@ -36,6 +37,7 @@
     var select = document.createElement('select');
     select.name = name;
     select.className = FIELD_CLASS + ' bg-white';
+    select.required = true;
 
     var blank = document.createElement('option');
     blank.value = '';

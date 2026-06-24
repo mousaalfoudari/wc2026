@@ -365,10 +365,21 @@ function roundManage(round) {
   return `
     <a href="/admin" class="text-sm text-slate-500">← رجوع للوحة التحكم</a>
     <div class="flex items-center justify-between mt-1 mb-4">
-      <h1 class="text-xl font-bold">${escapeHtml(round.name)} ${round.locked ? '🔒' : '🟢'}</h1>
+      <h1 class="text-xl font-bold">${escapeHtml(round.name)} ${round.locked ? '🔒' : '🟢'} ${round.is_fire ? '🔥' : ''}</h1>
       ${round.matches.length ? `<a href="/admin/rounds/${round.id}/predictions" class="text-sm text-emerald-700 font-medium">👁️ شوف كل التوقعات</a>` : ''}
     </div>
     ${lockCountdownHtml(round)}
+
+    <div class="bg-white border ${round.is_fire ? 'border-orange-300' : 'border-slate-200'} rounded-xl p-4 mb-4 flex items-center justify-between">
+      <div>
+        <h3 class="font-bold text-sm">🔥 الجولة النارية</h3>
+        <p class="text-xs text-slate-500 mt-0.5">${round.is_fire ? 'مفعّلة: كل التوقعات الصحيحة بهذي الجولة تاخذ ضعف النقاط.' : 'لو فعّلتها، كل التوقعات الصحيحة بهذي الجولة تاخذ ضعف النقاط (نفس مضاعفة الدبل، بدون تراكم بينهم).'}</p>
+      </div>
+      <form method="post" action="/admin/rounds/${round.id}/fire" class="inline">
+        <input type="hidden" name="is_fire" value="${round.is_fire ? '0' : '1'}" />
+        <button class="text-xs ${round.is_fire ? 'text-rose-600' : 'text-orange-600'} font-medium whitespace-nowrap">${round.is_fire ? 'إلغاء التفعيل' : 'تفعيل 🔥'}</button>
+      </form>
+    </div>
 
     <h2 class="font-bold mb-2">المباريات</h2>
     ${matchesHtml}
@@ -471,7 +482,7 @@ function roundPredictions(round, data, bonusAnswers, pointsSummary) {
       const names = predictions
         .map((p, i) => {
           const detailId = `pd-${match.id}-${i}`;
-          return `<button type="button" class="pred-toggle-btn bg-slate-100 hover:bg-emerald-100 text-slate-700 text-sm rounded-full px-3 py-1" data-target="${detailId}">${escapeHtml(p.userName)}${p.isDouble ? ' ⭐' : ''}</button>`;
+          return `<button type="button" class="pred-toggle-btn bg-slate-100 hover:bg-emerald-100 text-slate-700 text-sm rounded-full px-3 py-1" data-target="${detailId}" ${p.isDouble ? 'title="هذي مباراة الدبل عنده"' : ''}>${escapeHtml(p.userName)}${p.isDouble ? ' ⭐' : ''}</button>`;
         })
         .join('');
 
@@ -884,6 +895,14 @@ module.exports = function (router) {
     }
     logic.gradeBonus(roundId, round.bonus_correct_index);
     redirect(res, `/admin/rounds/${roundId}`, 'تم تصحيح إجابات البونص ✅');
+  });
+
+  router.post('/admin/rounds/:id/fire', async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const roundId = Number(req.params.id);
+    const isFire = req.body.is_fire === '1';
+    logic.setRoundFire(roundId, isFire);
+    redirect(res, `/admin/rounds/${roundId}`, isFire ? 'تم تفعيل الجولة النارية 🔥' : 'تم إلغاء تفعيل الجولة النارية ✅');
   });
 
   router.post('/admin/rounds/:id/bonus/ungrade', async (req, res) => {

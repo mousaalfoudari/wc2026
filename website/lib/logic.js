@@ -49,6 +49,14 @@ function updateRoundBonus(roundId, { question, options, correctIndex }) {
   ).run(question || null, JSON.stringify(options || []), correctIndex == null ? null : correctIndex, roundId);
 }
 
+// Toggle a round's "نارية" (fiery) flag — doubles points for every correct
+// prediction in that round once matches are graded (see gradeMatch below /
+// gradePrediction in lib/scoring.js). Purely a manual admin decision, set
+// from the round management page (see POST /admin/rounds/:id/fire).
+function setRoundFire(roundId, isFire) {
+  db.prepare('UPDATE rounds SET is_fire = ? WHERE id = ?').run(isFire ? 1 : 0, roundId);
+}
+
 function addMatch(roundId, teamA, teamB, kickoffAt) {
   const r = db
     .prepare('INSERT INTO matches (round_id, team_a, team_b, kickoff_at) VALUES (?, ?, ?, ?)')
@@ -209,6 +217,17 @@ function getRoundPredictionsByMatch(roundId) {
     )
     .all(...matchIds);
 
+  // Live double pick per user for this round — read straight from
+  // round_picks instead of predictions.is_double, which is only ever written
+  // once the match is graded (see gradeMatch). This way the admin sees who
+  // locked in a double on which match immediately, before grading.
+  const doubleByUser = new Map(
+    db
+      .prepare('SELECT user_id, double_match_id FROM round_picks WHERE round_id = ?')
+      .all(roundId)
+      .map((r) => [r.user_id, r.double_match_id])
+  );
+
   const matchById = new Map(matches.map((m) => [m.id, m]));
   const byMatch = new Map(matches.map((m) => [m.id, []]));
   const predictedUserIds = new Map(matches.map((m) => [m.id, new Set()]));
@@ -238,7 +257,7 @@ function getRoundPredictionsByMatch(roundId) {
       scorerMatchA,
       scorerMatchB,
       canCreditScorer: exactScore,
-      isDouble: !!r.is_double,
+      isDouble: doubleByUser.get(r.user_id) === r.match_id,
       pointsEarned: r.points_earned,
     });
     predictedUserIds.get(r.match_id).add(r.user_id);
@@ -263,6 +282,11 @@ function gradeMatch(matchId, finalA, finalB, scorersA, scorersB) {
   ).run(finalA, finalB, JSON.stringify(scorersA), JSON.stringify(scorersB), matchId);
 
   const preds = db.prepare('SELECT * FROM predictions WHERE match_id = ?').all(matchId);
+  // Whether the whole round is flagged "نارية" (fيery) — doubles everyone's
+  // points the same way a personal double does, but the two never stack
+  // (see gradePrediction in lib/scoring.js).
+  const round = getRound(match.round_id);
+  const isFireRound = !!(round && round.is_fire);
 
   for (const row of preds) {
     const pick = getRoundPick(row.user_id, match.round_id);
@@ -273,7 +297,7 @@ function gradeMatch(matchId, finalA, finalB, scorersA, scorersB) {
       pred_scorers_a: safeJsonParse(row.pred_scorers_a, []),
       pred_scorers_b: safeJsonParse(row.pred_scorers_b, []),
     };
-    const result = gradePrediction(pred, finalA, finalB, scorersA, scorersB, isDouble);
+    const result = gradePrediction(pred, finalA, finalB, scorersA, scorersB, isDouble, isFireRound);
 
     db.prepare('UPDATE predictions SET points_earned = ?, is_double = ?, perfect = ? WHERE id = ?').run(
       result.points,
@@ -687,9 +711,11 @@ function processRoundLocks() {
           db.prepare('UPDATE users SET miss_streak = 0 WHERE id = ?').run(u.id);
         }
       } else {
+        // Note: miss_streak is still tracked/shown to the admin as a heads-up
+        // signal, but it no longer auto-freezes the account — freezing is a
+        // manual admin decision only (see POST /admin/users/:id/status).
         const newStreak = u.miss_streak + 1;
-        const newStatus = newStreak >= 3 ? 'frozen' : u.status;
-        db.prepare('UPDATE users SET miss_streak = ?, status = ? WHERE id = ?').run(newStreak, newStatus, u.id);
+        db.prepare('UPDATE users SET miss_streak = ? WHERE id = ?').run(newStreak, u.id);
       }
     }
 
@@ -743,6 +769,7 @@ module.exports = {
   getMatch,
   createRound,
   updateRoundBonus,
+  setRoundFire,
   addMatch,
   setMatchLineupImage,
   clearMatchLineupImage,

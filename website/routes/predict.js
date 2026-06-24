@@ -212,7 +212,7 @@ module.exports = function (router) {
 
     const frozenNotice =
       req.user.status === 'frozen'
-        ? `<div class="bg-rose-50 border border-rose-200 rounded-xl p-4 mb-4 text-sm text-rose-700">❄️ حسابك مجمّد بسبب الغياب ٣ جولات متتالية، ما يمكنك تسجيل توقعات جديدة. تواصل مع الأدمن لو تبي توضيح.</div>`
+        ? `<div class="bg-rose-50 border border-rose-200 rounded-xl p-4 mb-4 text-sm text-rose-700">❄️ حسابك مجمّد، ما يمكنك تسجيل توقعات جديدة. تواصل مع الأدمن لو تبي توضيح.</div>`
         : '';
 
     const cards = round.matches
@@ -223,6 +223,7 @@ module.exports = function (router) {
       ${roundPicker(rounds, round.id)}
       <h2 class="text-lg font-bold mb-1">${escapeHtml(round.name)} ${round.locked ? '🔒 مقفولة' : '🟢 مفتوحة'}</h2>
       ${lockCountdownHtml(round)}
+      ${round.is_fire ? `<div class="bg-orange-50 border border-orange-300 rounded-xl p-3 mb-4 text-sm text-orange-700 font-bold">🔥 جولة نارية! كل توقع صحيح بهذي الجولة ياخذ ضعف النقاط.</div>` : ''}
       ${frozenNotice}
       ${req.user.status !== 'frozen' ? jokerBanner(jokers, req.user.id) : ''}
       ${cards}
@@ -260,6 +261,14 @@ module.exports = function (router) {
     }
     const scorersA = toArray(req.body[`scorers_a_${matchId}`] || req.body.scorers_a).filter((s) => s && s.trim()).slice(0, scoreA);
     const scorersB = toArray(req.body[`scorers_b_${matchId}`] || req.body.scorers_b).filter((s) => s && s.trim()).slice(0, scoreB);
+
+    // Scorer names are mandatory for every goal predicted — e.g. predicting
+    // 2-1 means picking exactly 2 names for team A and 1 for team B. A 0-0
+    // prediction needs none (both counts are already 0), so it passes this
+    // check automatically.
+    if (scorersA.length !== scoreA || scorersB.length !== scoreB) {
+      return redirect(res, `/predict?round=${round.id}`, 'لازم تحدد اسم الهداف لكل هدف بالنتيجة المتوقعة (إلا إذا توقعت ٠-٠).', 'error');
+    }
 
     logic.submitPrediction(req.user.id, matchId, scoreA, scoreB, scorersA, scorersB);
 
