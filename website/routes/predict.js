@@ -223,7 +223,17 @@ module.exports = function (router) {
       ${roundPicker(rounds, round.id)}
       <h2 class="text-lg font-bold mb-1">${escapeHtml(round.name)} ${round.locked ? '🔒 مقفولة' : '🟢 مفتوحة'}</h2>
       ${lockCountdownHtml(round)}
-      ${round.is_fire ? `<div class="bg-orange-50 border border-orange-300 rounded-xl p-3 mb-4 text-sm text-orange-700 font-bold">🔥 جولة نارية! كل توقع صحيح بهذي الجولة ياخذ ضعف النقاط.</div>` : ''}
+      ${
+        // Only reveal the fiery badge to participants once the round is
+        // locked (deadline passed, no more new predictions) — this way the
+        // admin can flag a round as fiery at any point, even before or
+        // during the open prediction window, without tipping anyone off
+        // early. Before locking, this stays a surprise; on the admin side
+        // (routes/admin.js roundManage) the 🔥 status is always visible.
+        round.is_fire && round.locked
+          ? `<div class="bg-orange-50 border border-orange-300 rounded-xl p-3 mb-4 text-sm text-orange-700 font-bold">🔥 جولة نارية! كل توقع صحيح بهذي الجولة ياخذ ضعف النقاط.</div>`
+          : ''
+      }
       ${frozenNotice}
       ${req.user.status !== 'frozen' ? jokerBanner(jokers, req.user.id) : ''}
       ${cards}
