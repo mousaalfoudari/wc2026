@@ -668,6 +668,18 @@ function rostersPage() {
     <h1 class="text-xl font-bold mt-1 mb-1">قوائم لاعبي الفرق</h1>
     <p class="text-sm text-slate-500 mb-4">${doneCount} من ${teamNames.length} فريق عنده قائمة. أي فريق عنده قائمة، المشتركين يختارون الهداف من قائمة منسدلة بدل كتابة الاسم (وكذا أنت لما تدخل النتيجة الرسمية) — يضمن مطابقة دقيقة بدون أي اختلاف بالكتابة. الفرق اللي بلا قائمة تفضل تعمل بالكتابة الحرة كالسابق.</p>
     <p class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">💡 تقدر تضيف الاسم الرسمي بالإنجليزي لأي لاعب بنفس السطر بصيغة <code class="font-mono">الاسم العربي = English Name</code> (مثال: <code class="font-mono">ميسي = Messi</code>) — هذا يخلي تحديث النتائج الأوتوماتيكي (اللي يجيك بالإنجليزي من المصدر الخارجي) يطابق توقعات المشتركين العربية لذاك اللاعب بدون أي تدخل يدوي منك أو مني. الجزء الإنجليزي ما يظهر للمشترك، فقط يستخدم بالمطابقة بالخلفية. كتابة الاسم العربي لوحده (بدون "=") تبقى تشتغل عادي كالسابق.</p>
+
+    <div class="bg-white border border-emerald-200 rounded-xl p-4 mb-4">
+      <h3 class="font-bold mb-1 text-sm">📥 استيراد قوائم جاهزة (ملف JSON)</h3>
+      <p class="text-xs text-slate-500 mb-2">رفع ملف JSON واحد يحدّث كل الفرق دفعة واحدة، بدل لصق كل فريق لحاله. صيغة الملف: كائن JSON اسم كل فريق فيه (بالعربي، نفس اسم الفريق بالموقع) يقابله مصفوفة أسماء اللاعبين — مثال:</p>
+      <pre class="text-[11px] bg-slate-50 border border-slate-200 rounded-lg p-2 mb-2 overflow-x-auto font-mono" dir="ltr">{"قطر": ["Hassan Al-Haydos", "Akram Afif", ...], "البرازيل": ["Neymar", ...]}</pre>
+      <form method="post" action="/admin/rosters/import" enctype="multipart/form-data" class="flex items-center gap-2">
+        <input type="file" name="rosters_file" accept=".json,application/json" required class="text-sm flex-1 min-w-0" />
+        <button class="bg-emerald-600 text-white rounded-lg px-3 py-1.5 text-sm font-bold hover:bg-emerald-700 whitespace-nowrap">استيراد</button>
+      </form>
+      <p class="text-xs text-slate-400 mt-2">أي اسم فريق بالملف ما يطابق اسم فريق موجود بالموقع يتم تجاوزه (ويظهر لك تنبيه بالعدد) — باقي الفرق المطابقة تتحدث عادي.</p>
+    </div>
+
     ${cards || `<div class="text-slate-400 text-sm py-8 text-center">لا توجد فرق بالجدول بعد</div>`}
   `;
 }
@@ -957,6 +969,64 @@ module.exports = function (router) {
       .filter(Boolean);
     logic.setRoster(teamName, players);
     redirect(res, '/admin/rosters', `تم حفظ قائمة ${teamName} ✅`);
+  });
+
+  // Bulk import: lets the admin upload one rosters.json file (shape:
+  // { "اسم الفريق": ["Player One", "Player Two", ...], ... }) and apply it
+  // to every matching team in one click, instead of pasting each team's
+  // list by hand on this same page. Goes through the same multipart
+  // pipeline as the lineup-image uploads above (parsed centrally in
+  // server.js) — req.files.rosters_file.data is the raw uploaded Buffer.
+  // Only team names that exactly match an existing team (from
+  // logic.listTeamNames(), i.e. names actually used in the schedule) are
+  // applied; anything else is silently skipped and counted so the admin
+  // gets an accurate "X طبّقنا، Y تجاوزنا" message rather than a false
+  // "all good" if the file has typos or extra/renamed teams.
+  router.post('/admin/rosters/import', async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+
+    const file = req.files && req.files.rosters_file;
+    if (!file || !file.data || !file.data.length) {
+      return redirect(res, '/admin/rosters', 'اختر ملف JSON للرفع.', 'error');
+    }
+
+    let parsed;
+    try {
+      parsed = JSON.parse(file.data.toString('utf8'));
+    } catch (e) {
+      return redirect(res, '/admin/rosters', 'الملف المرفوع ليس JSON صحيح — تأكد إنه نفس صيغة rosters.json.', 'error');
+    }
+
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return redirect(res, '/admin/rosters', 'صيغة الملف غير متوقعة — لازم يكون كائن JSON بصيغة {"اسم الفريق": ["لاعب١", "لاعب٢"]}.', 'error');
+    }
+
+    const knownTeams = new Set(logic.listTeamNames());
+    let updated = 0;
+    let skipped = 0;
+
+    for (const [teamName, players] of Object.entries(parsed)) {
+      if (!Array.isArray(players) || !players.every((p) => typeof p === 'string')) {
+        skipped++;
+        continue;
+      }
+      if (!knownTeams.has(teamName)) {
+        skipped++;
+        continue;
+      }
+      const clean = players.map((p) => p.trim()).filter(Boolean);
+      logic.setRoster(teamName, clean);
+      updated++;
+    }
+
+    if (updated === 0) {
+      return redirect(res, '/admin/rosters', 'ما تحدث أي فريق — تأكد إن أسماء الفرق بالملف مطابقة بالضبط لأسماء الفرق بالموقع.', 'error');
+    }
+
+    const msg = skipped
+      ? `تم تحديث ${updated} فريق ✅ (${skipped} اسم بالملف ما طابق فريق موجود وتم تجاوزه)`
+      : `تم تحديث ${updated} فريق بنجاح ✅`;
+    redirect(res, '/admin/rosters', msg, skipped ? 'error' : 'ok');
   });
 
   router.post('/admin/users/:id/status', async (req, res) => {
