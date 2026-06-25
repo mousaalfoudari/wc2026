@@ -6,18 +6,18 @@ const { makeSessionCookie, clearSessionCookie } = require('../lib/auth');
 
 const LOGIN_BG = '/banner.jpg';
 
-// Shows the "تكتكها" poster (trophy/ball/stadium + title) inside a fixed
-// 700/480 box on the login/register pages — replaces the grass image that
-// used to be here. The poster (700x933) is portrait while the box is
-// landscape, so object-fit: contain keeps the whole poster visible (nothing
-// cropped, including the team names at the bottom) instead of cover cutting
-// most of it off. The grey background-color (sampled from the poster's own
-// left/right edges) fills the leftover space on the sides instead of
-// showing blank white.
+// Shows the "تكتكها" poster (trophy/ball/stadium + title) on the
+// login/register pages. The box's aspect-ratio now matches the poster's own
+// native shape (700x933, portrait) instead of a fixed landscape 700/480 —
+// that landscape box only made sense back when this same box size was
+// shared with the old sitewide banner (now removed), and forcing this
+// portrait poster into it left ugly grey letterbox bars on the sides.
+// Matching the box to the image means it fills edge-to-edge with no
+// cropping and no filler color needed.
 function loginImageHtml() {
   return `<div class="max-w-sm mx-auto mt-2">
-    <div class="w-full rounded-xl shadow-sm overflow-hidden flex items-center justify-center" style="aspect-ratio: 700 / 480; background-color: #8b9191;">
-      <img src="${LOGIN_BG}" alt="" style="width: 100%; height: 100%; object-fit: contain; object-position: center;" />
+    <div class="w-full rounded-xl shadow-sm overflow-hidden" style="aspect-ratio: 700 / 933;">
+      <img src="${LOGIN_BG}" alt="" style="width: 100%; height: 100%; object-fit: cover; object-position: center;" />
     </div>
   </div>`;
 }
