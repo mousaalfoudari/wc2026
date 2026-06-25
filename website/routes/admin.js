@@ -606,6 +606,11 @@ function usersPage() {
             <button class="text-xs text-emerald-700 font-medium">تغيير</button>
           </form>
         </td>
+        <td class="px-3 py-2">
+          <form method="post" action="/admin/users/${u.id}/delete" class="inline" data-confirm="حذف ${escapeHtml(u.name)} نهائياً؟ راح تنحذف كل توقعاته ونقاطه وسجل الجوكر — ما يمكن التراجع عن هذا!">
+            <button class="text-xs text-rose-700 font-bold">🗑️ حذف نهائي</button>
+          </form>
+        </td>
       </tr>`;
     })
     .join('');
@@ -624,9 +629,9 @@ function usersPage() {
     <div class="bg-white border border-slate-200 rounded-xl overflow-x-auto">
       <table class="w-full text-sm whitespace-nowrap">
         <thead class="bg-slate-50 text-slate-500"><tr>
-          <th class="px-3 py-2 text-right">الاسم</th><th class="px-3 py-2">النقاط</th><th class="px-3 py-2">غياب متتالي</th><th class="px-3 py-2">الحالة</th><th class="px-3 py-2"></th><th class="px-3 py-2">إضافة/خصم نقاط</th><th class="px-3 py-2"></th><th class="px-3 py-2">إعادة تعيين باسوورد</th>
+          <th class="px-3 py-2 text-right">الاسم</th><th class="px-3 py-2">النقاط</th><th class="px-3 py-2">غياب متتالي</th><th class="px-3 py-2">الحالة</th><th class="px-3 py-2"></th><th class="px-3 py-2">إضافة/خصم نقاط</th><th class="px-3 py-2"></th><th class="px-3 py-2">إعادة تعيين باسوورد</th><th class="px-3 py-2"></th>
         </tr></thead>
-        <tbody class="divide-y divide-slate-100">${rowsHtml || `<tr><td colspan="8" class="px-3 py-6 text-center text-slate-400">لا يوجد مشتركين بعد</td></tr>`}</tbody>
+        <tbody class="divide-y divide-slate-100">${rowsHtml || `<tr><td colspan="9" class="px-3 py-6 text-center text-slate-400">لا يوجد مشتركين بعد</td></tr>`}</tbody>
       </table>
     </div>
   `;
@@ -1064,6 +1069,21 @@ module.exports = function (router) {
     }
     users.setAdmin(id, makeAdmin);
     redirect(res, '/admin/users', makeAdmin ? 'تمت الترقية لأدمن ✅' : 'تم إلغاء صلاحية الأدمن ✅');
+  });
+
+  // Permanent delete of a participant account — irreversible, unlike the
+  // freeze/unfreeze toggle above. Refuses to touch admin accounts (they'd
+  // need to be demoted first via the admin-toggle route above, which is a
+  // separate, deliberate step) so this can't be used to accidentally wipe
+  // an admin, including the last one.
+  router.post('/admin/users/:id/delete', async (req, res) => {
+    if (!requireAdmin(req, res)) return;
+    const id = Number(req.params.id);
+    const target = users.findById(id);
+    if (!target) return redirect(res, '/admin/users', 'المشترك غير موجود.', 'error');
+    if (target.is_admin) return redirect(res, '/admin/users', 'ما يمكن حذف حساب أدمن من هنا — لازم تلغي صلاحيته كأدمن أول.', 'error');
+    users.deleteUser(id);
+    redirect(res, '/admin/users', `تم حذف ${target.name} وكل توقعاته نهائياً ✅`);
   });
 
   router.post('/admin/predictions/:id/credit-scorer', async (req, res) => {
