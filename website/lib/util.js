@@ -101,13 +101,32 @@ function fmtDateTime(iso) {
   if (!iso) return '';
   const d = new Date(iso);
   if (isNaN(d.getTime())) return iso;
+  // timeZone is explicit (not left to the server's system clock) because
+  // Render's server runs in UTC — without this, times displayed 3 hours
+  // earlier than actual Kuwait local time.
   return d.toLocaleString('ar-KW', {
+    timeZone: 'Asia/Kuwait',
     weekday: 'short',
     day: '2-digit',
     month: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+// Converts a timezone-less "datetime-local" form value (e.g. "2026-07-01T20:00",
+// as typed by the admin assuming their own Kuwait wall-clock) into a correct
+// UTC ISO string for storage. Kuwait has no daylight saving, so the offset is
+// always a fixed +3 — this avoids the same UTC-vs-Kuwait drift that fmtDateTime
+// above had to be fixed for, just on the write side instead of the read side.
+function kuwaitLocalToUtcIso(localDateTime) {
+  const s = String(localDateTime || '').trim();
+  if (!s) return null;
+  const normalized = s.length === 16 ? s + ':00' : s; // ensure seconds present
+  const asIfUtc = new Date(normalized + 'Z');
+  if (isNaN(asIfUtc.getTime())) return null;
+  const utcMs = asIfUtc.getTime() - 3 * 60 * 60 * 1000; // Kuwait = UTC+3
+  return new Date(utcMs).toISOString();
 }
 
 function nowIso() {
@@ -134,6 +153,7 @@ module.exports = {
   toArray,
   dayKey,
   fmtDateTime,
+  kuwaitLocalToUtcIso,
   nowIso,
   safeJsonParse,
 };

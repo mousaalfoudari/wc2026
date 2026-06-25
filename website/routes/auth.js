@@ -4,20 +4,19 @@ const { sendHtml } = require('../lib/http');
 const users = require('../lib/users');
 const { makeSessionCookie, clearSessionCookie } = require('../lib/auth');
 
-const LOGIN_BG = '/login-bg.jpg';
+const LOGIN_BG = '/banner.jpg';
 
-// Shows the new grass/TAKTIKHA image inside a fixed 700/480 box — same
-// box size as the sitewide bannerHtml() in lib/render.js — instead of a
-// full-page CSS background. Unlike the banner (whose source image is
-// roughly the same shape as its box, so object-fit: cover shows it intact),
-// this image is a tall portrait (1160x2128) being placed in a wide
-// landscape box, so cover would crop almost all of it. object-fit: contain
-// keeps the whole image visible (nothing cut off), and the dark-green
-// background-color (sampled from the image's own grass edges) fills the
-// leftover space on the sides instead of showing blank white.
+// Shows the "تكتكها" poster (trophy/ball/stadium + title) inside a fixed
+// 700/480 box on the login/register pages — replaces the grass image that
+// used to be here. The poster (700x933) is portrait while the box is
+// landscape, so object-fit: contain keeps the whole poster visible (nothing
+// cropped, including the team names at the bottom) instead of cover cutting
+// most of it off. The grey background-color (sampled from the poster's own
+// left/right edges) fills the leftover space on the sides instead of
+// showing blank white.
 function loginImageHtml() {
   return `<div class="max-w-sm mx-auto mt-2">
-    <div class="w-full rounded-xl shadow-sm overflow-hidden flex items-center justify-center" style="aspect-ratio: 700 / 480; background-color: #2a4818;">
+    <div class="w-full rounded-xl shadow-sm overflow-hidden flex items-center justify-center" style="aspect-ratio: 700 / 480; background-color: #8b9191;">
       <img src="${LOGIN_BG}" alt="" style="width: 100%; height: 100%; object-fit: contain; object-position: center;" />
     </div>
   </div>`;

@@ -4,7 +4,7 @@ const path = require('path');
 const { layout, redirect, escapeHtml, lockCountdownHtml } = require('../lib/render');
 const { sendHtml, sendText } = require('../lib/http');
 const { requireAdmin, requireUser } = require('../lib/guard');
-const { toArray, fmtDateTime, safeJsonParse } = require('../lib/util');
+const { toArray, fmtDateTime, kuwaitLocalToUtcIso, safeJsonParse } = require('../lib/util');
 const logic = require('../lib/logic');
 const users = require('../lib/users');
 const { syncLiveResults, FEED_URL } = require('../lib/livesync');
@@ -744,7 +744,7 @@ module.exports = function (router) {
     const roundId = Number(req.params.id);
     const { team_a, team_b, kickoff_at } = req.body;
     if (!team_a || !team_b || !kickoff_at) return redirect(res, `/admin/rounds/${roundId}`, 'كل الحقول مطلوبة.', 'error');
-    logic.addMatch(roundId, team_a, team_b, new Date(kickoff_at).toISOString());
+    logic.addMatch(roundId, team_a, team_b, kuwaitLocalToUtcIso(kickoff_at));
     redirect(res, `/admin/rounds/${roundId}`, 'تمت إضافة المباراة ✅');
   });
 
@@ -757,9 +757,9 @@ module.exports = function (router) {
       const parts = line.split(';').map((p) => p.trim());
       if (parts.length < 3) continue;
       const [teamA, teamB, dt] = parts;
-      const d = new Date(dt);
-      if (isNaN(d.getTime())) continue;
-      logic.addMatch(roundId, teamA, teamB, d.toISOString());
+      const iso = kuwaitLocalToUtcIso(dt);
+      if (!iso) continue;
+      logic.addMatch(roundId, teamA, teamB, iso);
       count++;
     }
     redirect(res, `/admin/rounds/${roundId}`, `تمت إضافة ${count} مباراة ✅`);
