@@ -11,6 +11,7 @@ const { layout, redirect } = require('./lib/render');
 const users = require('./lib/users');
 const logic = require('./lib/logic');
 const { seedGroupStage } = require('./lib/seed-schedule');
+const { seedRound32 } = require('./lib/seed-round32');
 const { syncLiveResults } = require('./lib/livesync');
 
 const router = new Router();
@@ -54,6 +55,19 @@ try {
   }
 } catch (e) {
   console.error('seedGroupStage error:', e);
+}
+
+// Auto-load the 16 Round-of-32 matches once (no-op if a "دور الـ٣٢" round
+// already exists) — same idea as seedGroupStage above, but guarded by
+// stage name instead of "any round exists" since this now runs against a
+// DB that already has real participants/predictions in it.
+try {
+  const seedR32Result = seedRound32();
+  if (seedR32Result.ok) {
+    console.log(`✔ تم تحميل جدول دور الـ٣٢ أوتوماتيك: ${seedR32Result.rounds} جولة، ${seedR32Result.matches} مباراة.`);
+  }
+} catch (e) {
+  console.error('seedRound32 error:', e);
 }
 
 // Live results: check immediately on boot (to catch up on anything already
